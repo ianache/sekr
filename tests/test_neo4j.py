@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -186,3 +187,30 @@ def test_write_projection_maps_write_failures_rolls_back_and_hides_password(
     assert not driver.session_instance.transaction.committed
     assert driver.session_instance.closed
     assert driver.closed
+
+
+@pytest.mark.skipif(
+    not all(
+        os.getenv(name)
+        for name in ("SEKR_NEO4J_URI", "SEKR_NEO4J_USER", "SEKR_NEO4J_PASSWORD")
+    ),
+    reason="SEKR_NEO4J_URI, SEKR_NEO4J_USER, and SEKR_NEO4J_PASSWORD are required",
+)
+def test_live_neo4j_ingestion_is_repeatable():
+    from sekr.neo4j import write_projection
+
+    projection = build_graph_projection(DATASET)
+    first = write_projection(
+        projection,
+        uri=os.environ["SEKR_NEO4J_URI"],
+        user=os.environ["SEKR_NEO4J_USER"],
+        password=os.environ["SEKR_NEO4J_PASSWORD"],
+    )
+    second = write_projection(
+        projection,
+        uri=os.environ["SEKR_NEO4J_URI"],
+        user=os.environ["SEKR_NEO4J_USER"],
+        password=os.environ["SEKR_NEO4J_PASSWORD"],
+    )
+
+    assert first == second
