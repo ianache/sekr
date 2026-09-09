@@ -25,7 +25,7 @@ does not perform live repository ingestion.
 
 The runner writes captured CLI JSON and a human-readable report to a
 caller-provided output directory: `dataset-load.json`,
-`dataset-validate.json`, `evaluation.json`, `environment.json`, and
+`dataset-validate.json`, `context-compile.json`, `evaluation.json`, `environment.json`, and
 `EXPERIMENT_REPORT.md`. A fresh SQLite database is created inside that output
 directory for each run.
 
@@ -39,9 +39,11 @@ pwsh -NoProfile -File .\experiment-pack\v0.1\run-experiment.ps1 `
   -OutputDir .\experiment-pack\v0.1\reports\latest
 ```
 
-The runner loads and validates the fixture, evaluates the `coder-activation`
-case at budget `K = 6`, compare metrics with the canonical expectations, check
-reproducibility, and produce a GO decision only when acceptance passes.
+The runner loads and validates the fixture, captures a `context compile` result
+for `activate coder values` at budget `K = 6`, evaluates the
+`coder-activation` case at the same budget, compares metrics with the canonical
+expectations, checks explicit truncation and selected-item provenance, and
+produces a GO decision only when acceptance passes.
 
 ## Scope
 

@@ -1,7 +1,10 @@
 import json
+import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
+import sys
 
 import pytest
 
@@ -80,7 +83,72 @@ def test_runner_executes_fixture_and_writes_experiment_outputs(tmp_path):
     assert {
         "dataset-load.json",
         "dataset-validate.json",
+        "context-compile.json",
         "evaluation.json",
         "environment.json",
         "EXPERIMENT_REPORT.md",
     } <= {path.name for path in output_dir.iterdir()}
+
+
+def run_fixture_compile(tmp_path):
+    database = tmp_path / "knowledge.sqlite"
+    environment = dict(os.environ, PYTHONPATH=str(ROOT / "src"))
+    load = subprocess.run(
+        [sys.executable, "-m", "sekr.cli", "dataset", "load", "--db", str(database), "--source", str(DATASET)],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=environment,
+    )
+    assert load.returncode == 0, load.stderr
+    return database, environment
+
+
+def test_compile_output_explicitly_reports_budget_truncation(tmp_path):
+    """Catches removal of omittedCount or budget_truncated from the pack's concrete check."""
+    database, environment = run_fixture_compile(tmp_path)
+    result = subprocess.run(
+        [sys.executable, "-m", "sekr.cli", "context", "compile", "--db", str(database), "--task", "activate coder values", "--budget", "6"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=environment,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["omittedCount"] > 0
+    assert "budget_truncated" in payload["warnings"]
+
+
+def test_compile_output_marks_evidence_free_selected_records_without_false_verification(tmp_path):
+    """Catches selected artifacts or facts that retain VERIFIED confidence without evidence."""
+    database, environment = run_fixture_compile(tmp_path)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE artifacts SET evidence_json = '[]', confidence = 'UNKNOWN' WHERE id = 'endpoint.coder_values'"
+        )
+        connection.execute(
+            "UPDATE facts SET evidence_json = '[]', confidence = 'UNKNOWN' WHERE id = 'fact.active_query_filters_state'"
+        )
+
+    result = subprocess.run(
+        [sys.executable, "-m", "sekr.cli", "context", "compile", "--db", str(database), "--task", "activate coder values", "--budget", "8"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=environment,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    endpoint = next(item for item in payload["items"] if item["id"] == "endpoint.coder_values")
+    fact = next(fact for item in payload["items"] for fact in item["facts"] if fact["id"] == "fact.active_query_filters_state")
+    assert "missing_evidence" in payload["warnings"]
+    assert endpoint["evidence"] == []
+    assert endpoint["confidence"] not in {"VERIFIED", "APPROVED"}
+    assert fact["evidence"] == []
+    assert fact["confidence"] not in {"VERIFIED", "APPROVED"}

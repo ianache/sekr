@@ -46,6 +46,45 @@ function Test-MetricEqual([double]$Actual, [double]$ExpectedValue) {
     return [Math]::Abs($Actual - $ExpectedValue) -lt 0.000000000001
 }
 
+function Test-ProvenanceRecord([object]$Record, [string[]]$Warnings) {
+    if (($null -eq $Record) -or
+        ($Record.PSObject.Properties.Match("evidence").Count -ne 1) -or
+        ($Record.PSObject.Properties.Match("confidence").Count -ne 1)) {
+        return $false
+    }
+
+    $confidence = [string]$Record.confidence
+    if ($confidence -notin @("VERIFIED", "APPROVED", "INFERRED", "STALE", "CONFLICTED", "UNKNOWN")) {
+        return $false
+    }
+
+    if (@($Record.evidence).Count -eq 0) {
+        return (($confidence -notin @("VERIFIED", "APPROVED")) -and ($Warnings -contains "missing_evidence"))
+    }
+    return $true
+}
+
+function Test-CompileProvenance([object]$Compilation) {
+    $items = @($Compilation.items)
+    $warnings = @($Compilation.warnings)
+    if ($items.Count -eq 0) {
+        return $false
+    }
+
+    foreach ($item in $items) {
+        if (-not (Test-ProvenanceRecord $item $warnings) -or
+            ($item.PSObject.Properties.Match("facts").Count -ne 1)) {
+            return $false
+        }
+        foreach ($fact in @($item.facts)) {
+            if (-not (Test-ProvenanceRecord $fact $warnings)) {
+                return $false
+            }
+        }
+    }
+    return $true
+}
+
 $exePath = Resolve-InputFile $Exe "Executable"
 $datasetPath = Resolve-InputFile $Dataset "Dataset"
 $oraclePath = Resolve-InputFile $Oracle "Oracle"
@@ -64,16 +103,19 @@ if (Test-Path -LiteralPath $databasePath) {
 
 $loadPath = Join-Path $outputPath "dataset-load.json"
 $validatePath = Join-Path $outputPath "dataset-validate.json"
+$compilePath = Join-Path $outputPath "context-compile.json"
 $evaluationPath = Join-Path $outputPath "evaluation.json"
 $environmentPath = Join-Path $outputPath "environment.json"
 $reportPath = Join-Path $outputPath "EXPERIMENT_REPORT.md"
 
 $loadArguments = @("dataset", "load", "--db", $databasePath, "--source", $datasetPath)
 $validateArguments = @("dataset", "validate", "--db", $databasePath)
+$compileArguments = @("context", "compile", "--db", $databasePath, "--task", "activate coder values", "--budget", "6")
 $evaluationArguments = @("context", "evaluate", "--db", $databasePath, "--case", "coder-activation", "--budget", "6", "--oracle-path", $oraclePath)
 
 $null = Invoke-Sekr $exePath $loadArguments $loadPath
 $null = Invoke-Sekr $exePath $validateArguments $validatePath
+$compileStdout = Invoke-Sekr $exePath $compileArguments $compilePath
 $evaluationStdout = Invoke-Sekr $exePath $evaluationArguments $evaluationPath
 
 $environment = [ordered]@{
@@ -91,11 +133,12 @@ $environment = [ordered]@{
 )
 
 try {
+    $compilation = $compileStdout | ConvertFrom-Json -ErrorAction Stop
     $evaluation = $evaluationStdout | ConvertFrom-Json -ErrorAction Stop
     $expectedResults = Get-Content -LiteralPath $expectedPath -Raw | ConvertFrom-Json -ErrorAction Stop
 }
 catch {
-    throw "Could not parse evaluation or expected results JSON: $($_.Exception.Message)"
+    throw "Could not parse compilation, evaluation, or expected results JSON: $($_.Exception.Message)"
 }
 
 $acceptance = @(
@@ -104,7 +147,8 @@ $acceptance = @(
     [pscustomobject]@{ Rule = "Compiler falsePositiveRate is at most baseline"; Passed = ($evaluation.compiler.falsePositiveRate -le $evaluation.baseline.falsePositiveRate) }
     [pscustomobject]@{ Rule = "Compiler result is reproducible"; Passed = ([bool]$evaluation.reproducible -eq [bool]$expectedResults.acceptance.reproducible) }
     [pscustomobject]@{ Rule = "Compiler context is within budget"; Passed = ($evaluation.compiler.contextSize -le $expectedResults.acceptance.maxSelectedItems) }
-    [pscustomobject]@{ Rule = "Truncation is represented when candidates exceed budget"; Passed = (($evaluation.compiler.candidateCount -le $expectedResults.budget) -or ($evaluation.compiler.contextSize -lt $evaluation.compiler.candidateCount)) }
+    [pscustomobject]@{ Rule = "Truncation reports omittedCount and budget_truncated"; Passed = (($compilation.omittedCount -gt 0) -and ($compilation.warnings -contains "budget_truncated")) }
+    [pscustomobject]@{ Rule = "Selected artifacts and facts retain valid evidence/confidence provenance"; Passed = (Test-CompileProvenance $compilation) }
     [pscustomobject]@{ Rule = "Evaluation output does not expose oracle IDs"; Passed = (($evaluationStdout -notmatch "expected_artifact_ids") -and ($evaluationStdout -notmatch "critical_artifact_ids")) }
     [pscustomobject]@{ Rule = "Compiler fixture metrics match expected results"; Passed = ((Test-MetricEqual $evaluation.compiler.precisionAtK $expectedResults.expectedFixture.compiler.precisionAtK) -and (Test-MetricEqual $evaluation.compiler.criticalRecall $expectedResults.expectedFixture.compiler.criticalRecall) -and (Test-MetricEqual $evaluation.compiler.falsePositiveRate $expectedResults.expectedFixture.compiler.falsePositiveRate)) }
     [pscustomobject]@{ Rule = "Baseline fixture metrics match expected results"; Passed = ((Test-MetricEqual $evaluation.baseline.precisionAtK $expectedResults.expectedFixture.baseline.precisionAtK) -and (Test-MetricEqual $evaluation.baseline.criticalRecall $expectedResults.expectedFixture.baseline.criticalRecall) -and (Test-MetricEqual $evaluation.baseline.falsePositiveRate $expectedResults.expectedFixture.baseline.falsePositiveRate)) }
@@ -127,6 +171,7 @@ $report = @(
     "```text"
     "$exePath $($loadArguments -join ' ')"
     "$exePath $($validateArguments -join ' ')"
+    "$exePath $($compileArguments -join ' ')"
     "$exePath $($evaluationArguments -join ' ')"
     "```"
     ""
@@ -143,6 +188,12 @@ $report = @(
     "- falsePositiveRate: $($evaluation.compiler.falsePositiveRate)"
     "- contextSize: $($evaluation.compiler.contextSize)"
     "- candidateCount: $($evaluation.compiler.candidateCount)"
+    ""
+    "## Compilation checks"
+    ""
+    "- omittedCount: $($compilation.omittedCount)"
+    "- warnings: $($compilation.warnings -join ', ')"
+    "- selected items: $(@($compilation.items).Count)"
     ""
     "## Reproducibility"
     ""
