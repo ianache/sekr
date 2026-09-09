@@ -1,0 +1,145 @@
+"""Machine-readable command-line interface for the SEKR Context Compiler."""
+
+import argparse
+import json
+from pathlib import Path
+from typing import Sequence
+
+from sekr.compiler import ContextCompiler, evaluate_case
+from sekr.db import KnowledgeRepository, load_dataset, validate_dataset
+from sekr.errors import StructuredError
+
+
+class _Parser(argparse.ArgumentParser):
+    """Convert argparse failures into the CLI's JSON error contract."""
+
+    def error(self, message: str) -> None:
+        code = "INVALID_BUDGET" if "--budget" in message else "INVALID_INPUT"
+        raise StructuredError(code, message)
+
+
+def _positive_integer(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("budget must be a positive integer") from error
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("budget must be a positive integer")
+    return parsed
+
+
+def _build_parser() -> _Parser:
+    parser = _Parser(prog="sekr", description="Local deterministic SEKR Context Compiler")
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    dataset = commands.add_parser("dataset")
+    dataset_commands = dataset.add_subparsers(dest="dataset_command", required=True)
+    validate = dataset_commands.add_parser("validate")
+    validate.add_argument("--db", required=True, metavar="PATH")
+    load = dataset_commands.add_parser("load")
+    load.add_argument("--db", required=True, metavar="PATH")
+    load.add_argument("--source", required=True, metavar="PATH")
+
+    context = commands.add_parser("context")
+    context_commands = context.add_subparsers(dest="context_command", required=True)
+    compile_command = context_commands.add_parser("compile")
+    compile_command.add_argument("--db", required=True, metavar="PATH")
+    task_source = compile_command.add_mutually_exclusive_group(required=True)
+    task_source.add_argument("--task", metavar="TEXT")
+    task_source.add_argument("--task-file", metavar="PATH")
+    compile_command.add_argument("--budget", required=True, type=_positive_integer, metavar="N")
+
+    evaluate = context_commands.add_parser("evaluate")
+    evaluate.add_argument("--db", default=".sekr/knowledge.sqlite", metavar="PATH")
+    evaluate.add_argument("--case", required=True)
+    evaluate.add_argument("--budget", default=6, type=_positive_integer, metavar="N")
+    evaluate.add_argument("--data-dir", default="data", metavar="PATH")
+    evaluate.add_argument("--oracle-path", metavar="PATH")
+    return parser
+
+
+def _validation_payload(path: str | Path) -> dict[str, object]:
+    validation = validate_dataset(path)
+    return {
+        "valid": validation.valid,
+        "counts": {"artifacts": validation.artifact_count},
+        "issues": [error.to_dict() for error in validation.errors],
+    }
+
+
+def _require_valid_dataset(path: str | Path) -> None:
+    payload = _validation_payload(path)
+    if not payload["valid"]:
+        raise StructuredError(
+            "DATASET_INVALID",
+            "Dataset validation failed",
+            {"issues": payload["issues"], "counts": payload["counts"]},
+        )
+
+
+def _read_task(task: str | None, task_file: str | None) -> str:
+    if task is not None:
+        return task
+    try:
+        return Path(task_file or "").read_text(encoding="utf-8")
+    except OSError as error:
+        raise StructuredError("INVALID_TASK", "Task file could not be read", {"error": str(error)}) from error
+
+
+def _dispatch(arguments: argparse.Namespace) -> dict[str, object]:
+    if arguments.command == "dataset":
+        if arguments.dataset_command == "load":
+            load_dataset(arguments.db, arguments.source)
+            validation = _validation_payload(arguments.db)
+            return {
+                "loaded": True,
+                "counts": validation["counts"],
+                "db": str(arguments.db),
+                "source": str(arguments.source),
+            }
+        payload = _validation_payload(arguments.db)
+        if not payload["valid"]:
+            raise StructuredError("DATASET_INVALID", "Dataset validation failed", payload)
+        return payload
+
+    if arguments.context_command == "compile":
+        _require_valid_dataset(arguments.db)
+        task = _read_task(arguments.task, arguments.task_file)
+        return ContextCompiler(KnowledgeRepository(arguments.db)).compile(task, arguments.budget).to_dict()
+
+    if arguments.context_command == "evaluate":
+        _require_valid_dataset(arguments.db)
+        oracle_path = arguments.oracle_path or str(
+            Path(arguments.data_dir) / "oracle" / f"{arguments.case.replace('-', '_')}.json"
+        )
+        return evaluate_case(
+            arguments.db, oracle_path, case=arguments.case, budget=arguments.budget
+        ).to_dict()
+
+    raise StructuredError(
+        "EVALUATION_UNAVAILABLE",
+        "Context evaluation is not available until the evaluation oracle is installed",
+        {"case": arguments.case},
+    )
+
+
+def _emit(payload: dict[str, object]) -> None:
+    print(json.dumps(payload, sort_keys=True))
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = _build_parser()
+    try:
+        arguments = parser.parse_args(argv)
+        _emit(_dispatch(arguments))
+        return 0
+    except StructuredError as error:
+        _emit({"error": error.to_dict()})
+        return 1
+    except (OSError, ValueError) as error:
+        _emit({"error": StructuredError("INVALID_INPUT", str(error)).to_dict()})
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

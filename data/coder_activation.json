@@ -1,0 +1,106 @@
+{
+  "metadata": {
+    "version": "0.1.0",
+    "source_commit": "curated-local-v0.1",
+    "generated_at": "2026-09-07T00:00:00Z",
+    "description": "Curated Tenant/Coder activation and deactivation evidence for local deterministic retrieval."
+  },
+  "artifacts": [
+    {
+      "id": "feature.tenant_coder_activation",
+      "artifact_type": "feature",
+      "title": "Tenant Coder activation and deactivation",
+      "description": "Activate and deactivate Coder values for a Tenant while preserving active-only query behavior.",
+      "path": "tenant/features/coder_activation.md",
+      "evidence": ["tenant/features/coder_activation.md:1-28"],
+      "confidence": "APPROVED"
+    },
+    {
+      "id": "endpoint.coder_values",
+      "artifact_type": "endpoint",
+      "title": "Coder values API endpoint",
+      "description": "Tenant-scoped API endpoint for activating, deactivating, and listing Coder values.",
+      "path": "tenant/api/coder_values.py",
+      "evidence": ["tenant/api/coder_values.py:12-62"],
+      "confidence": "VERIFIED"
+    },
+    {
+      "id": "symbol.coder_value_service",
+      "artifact_type": "symbol",
+      "title": "CoderValueService",
+      "description": "Domain service that activates Coder values and queries only active values for a Tenant.",
+      "path": "tenant/src/coder_value_service.py",
+      "evidence": ["tenant/src/coder_value_service.py:10-86"],
+      "confidence": "VERIFIED"
+    },
+    {
+      "id": "symbol.coder_value_repository",
+      "artifact_type": "symbol",
+      "title": "CoderValueRepository",
+      "description": "Repository used by the Coder value service to persist Tenant Coder active state.",
+      "path": "tenant/src/coder_value_repository.py",
+      "evidence": ["tenant/src/coder_value_repository.py:8-54"],
+      "confidence": "VERIFIED"
+    },
+    {
+      "id": "repository.tenant_coder_repository",
+      "artifact_type": "repository",
+      "title": "Tenant Coder repository",
+      "description": "Persistence repository for Tenant-specific Coder values.",
+      "path": "tenant/src/coder_value_repository.py",
+      "evidence": ["tenant/src/coder_value_repository.py:1-54"],
+      "confidence": "VERIFIED"
+    },
+    {
+      "id": "table.tenant_coder_values",
+      "artifact_type": "table",
+      "title": "tenant_coder_values",
+      "description": "Tenant Coder value table with an active flag used by active-values queries.",
+      "path": "tenant/migrations/0042_tenant_coder_values.sql",
+      "evidence": ["tenant/migrations/0042_tenant_coder_values.sql:1-19"],
+      "confidence": "VERIFIED"
+    },
+    {
+      "id": "test.active_values_exclude_inactive",
+      "artifact_type": "test",
+      "title": "Active values exclude inactive values",
+      "description": "Regression test verifies the active values query excludes deactivated Tenant Coder values.",
+      "path": "tenant/tests/test_coder_value_service.py",
+      "evidence": ["tenant/tests/test_coder_value_service.py:44-78"],
+      "confidence": "VERIFIED"
+    },
+    {
+      "id": "document.adr_coder_activation",
+      "artifact_type": "adr",
+      "title": "ADR: preserve Coder activation history",
+      "description": "Activation and deactivation update state instead of deleting Tenant Coder values.",
+      "path": "tenant/docs/adr/004-coder-activation.md",
+      "evidence": ["tenant/docs/adr/004-coder-activation.md:1-34"],
+      "confidence": "APPROVED"
+    },
+    {
+      "id": "component.billing_invoice_export",
+      "artifact_type": "component",
+      "title": "Billing invoice export",
+      "description": "Unrelated monthly invoice export component for false-positive measurement.",
+      "path": "billing/src/invoice_export.py",
+      "evidence": ["billing/src/invoice_export.py:1-42"],
+      "confidence": "VERIFIED"
+    }
+  ],
+  "relations": [
+    {"id": "relation.feature_endpoint", "source_id": "feature.tenant_coder_activation", "target_id": "endpoint.coder_values", "relation_type": "exposed_by", "evidence": ["tenant/features/coder_activation.md:8-14"], "confidence": "APPROVED"},
+    {"id": "relation.endpoint_service", "source_id": "endpoint.coder_values", "target_id": "symbol.coder_value_service", "relation_type": "calls", "evidence": ["tenant/api/coder_values.py:24-51"], "confidence": "VERIFIED"},
+    {"id": "relation.service_repository", "source_id": "symbol.coder_value_service", "target_id": "symbol.coder_value_repository", "relation_type": "uses", "evidence": ["tenant/src/coder_value_service.py:20-70"], "confidence": "VERIFIED"},
+    {"id": "relation.repository_table", "source_id": "symbol.coder_value_repository", "target_id": "table.tenant_coder_values", "relation_type": "persists_to", "evidence": ["tenant/src/coder_value_repository.py:16-48"], "confidence": "VERIFIED"},
+    {"id": "relation.service_test", "source_id": "symbol.coder_value_service", "target_id": "test.active_values_exclude_inactive", "relation_type": "verified_by", "evidence": ["tenant/tests/test_coder_value_service.py:44-78"], "confidence": "VERIFIED"},
+    {"id": "relation.feature_adr", "source_id": "feature.tenant_coder_activation", "target_id": "document.adr_coder_activation", "relation_type": "constrained_by", "evidence": ["tenant/docs/adr/004-coder-activation.md:8-28"], "confidence": "APPROVED"}
+  ],
+  "facts": [
+    {"id": "fact.deactivation_preserves_history", "artifact_id": "feature.tenant_coder_activation", "statement": "Deactivation marks a Tenant Coder value inactive and preserves history.", "source": "ADR 004", "evidence": ["tenant/docs/adr/004-coder-activation.md:12-20"], "confidence": "APPROVED", "freshness": "current", "source_version": "0.1", "scope": "Tenant Coder activation", "owner": "Tenant domain"},
+    {"id": "fact.active_query_filters_state", "artifact_id": "symbol.coder_value_service", "statement": "Active values queries must exclude inactive Tenant Coder values.", "source": "Service regression test", "evidence": ["tenant/tests/test_coder_value_service.py:44-78"], "confidence": "VERIFIED", "freshness": "current", "source_version": "0.1", "scope": "Tenant Coder activation", "owner": "Tenant domain"}
+  ],
+  "task_profiles": [
+    {"id": "profile.coder_activation", "name": "Activate or deactivate Tenant Coder values", "terms": ["tenant", "coder", "activate", "deactivate", "active", "values"], "expected_artifact_types": ["feature", "endpoint", "symbol", "table", "test", "adr"], "expected_artifacts": ["feature.tenant_coder_activation", "endpoint.coder_values", "symbol.coder_value_service", "symbol.coder_value_repository", "table.tenant_coder_values", "test.active_values_exclude_inactive", "document.adr_coder_activation"]}
+  ]
+}
