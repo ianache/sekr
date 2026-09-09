@@ -215,11 +215,23 @@ def _validate_raw_dataset(data: dict[str, object]) -> None:
             )
 
 
+def validate_dataset_json(data: dict[str, object]) -> None:
+    """Raise a structured error when a raw JSON dataset violates SEKR rules."""
+    try:
+        _validate_raw_dataset(data)
+    except StructuredError:
+        raise
+    except (AttributeError, KeyError, TypeError) as error:
+        raise StructuredError(
+            "INVALID_DATASET", "Dataset has invalid records", {"error": str(error)}
+        ) from error
+
+
 def load_dataset(path: str | Path, dataset_json: str | Path) -> None:
     """Replace database contents with a checked, curated JSON dataset."""
     data = _read_dataset(dataset_json)
     try:
-        _validate_raw_dataset(data)
+        validate_dataset_json(data)
         metadata = DatasetMetadata(**data["metadata"])
         artifacts = [Artifact(**item) for item in data["artifacts"]]
         relations = [Relation(**item) for item in data["relations"]]
