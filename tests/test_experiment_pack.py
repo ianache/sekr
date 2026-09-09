@@ -15,6 +15,15 @@ DATASET = ROOT / "data" / "coder_activation.json"
 ORACLE = ROOT / "data" / "oracle" / "coder_activation.json"
 RUNNER = PACK / "run-experiment.ps1"
 PROBE = ROOT / "build-standalone-probe-20260908" / "dist" / "sekr.exe"
+RUNTIME_ARTIFACT_TYPES = {
+    "feature",
+    "endpoint",
+    "symbol",
+    "table",
+    "test",
+    "document",
+    "repository",
+}
 
 
 def pack_files():
@@ -40,6 +49,23 @@ def test_oracle_ids_exist_in_fixture_and_critical_ids_are_expected():
 
     assert expected_ids <= fixture_ids
     assert critical_ids <= expected_ids
+
+
+def test_fixture_contains_required_p1_runtime_artifact_types():
+    fixture = json.loads(DATASET.read_text(encoding="utf-8"))
+
+    artifact_types = {artifact["artifact_type"] for artifact in fixture["artifacts"]}
+
+    assert RUNTIME_ARTIFACT_TYPES <= artifact_types
+
+
+def test_verified_and_approved_fixture_artifacts_and_relations_have_evidence():
+    fixture = json.loads(DATASET.read_text(encoding="utf-8"))
+
+    for collection in (fixture["artifacts"], fixture["relations"]):
+        for record in collection:
+            if record["confidence"] in {"VERIFIED", "APPROVED"}:
+                assert record["evidence"], record["id"]
 
 
 def test_ontology_declares_every_fixture_relationship_type():
@@ -152,3 +178,45 @@ def test_compile_output_marks_evidence_free_selected_records_without_false_verif
     assert endpoint["confidence"] not in {"VERIFIED", "APPROVED"}
     assert fact["evidence"] == []
     assert fact["confidence"] not in {"VERIFIED", "APPROVED"}
+
+
+def test_evaluator_meets_expected_results_acceptance(tmp_path):
+    database, environment = run_fixture_compile(tmp_path)
+    expected = json.loads((PACK / "expected-results.json").read_text(encoding="utf-8"))
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "sekr.cli",
+            "context",
+            "evaluate",
+            "--db",
+            str(database),
+            "--case",
+            expected["case"],
+            "--budget",
+            str(expected["budget"]),
+            "--oracle-path",
+            str(ORACLE),
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=environment,
+    )
+
+    assert result.returncode == 0, result.stderr
+    evaluation = json.loads(result.stdout)
+    compiler = evaluation["compiler"]
+    baseline = evaluation["baseline"]
+    acceptance = expected["acceptance"]
+
+    assert compiler["criticalRecall"] == acceptance["compilerCriticalRecall"]
+    assert compiler["precisionAtK"] >= baseline["precisionAtK"]
+    assert compiler["falsePositiveRate"] <= baseline["falsePositiveRate"]
+    assert evaluation["reproducible"] is acceptance["reproducible"]
+    assert compiler["contextSize"] <= acceptance["maxSelectedItems"]
+    assert "expected_artifact_ids" not in result.stdout
+    assert "critical_artifact_ids" not in result.stdout

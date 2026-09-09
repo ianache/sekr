@@ -80,7 +80,7 @@
     },
     {
       "id": "component.billing_invoice_export",
-      "artifact_type": "component",
+      "artifact_type": "document",
       "title": "Billing invoice export",
       "description": "Unrelated monthly invoice export component for false-positive measurement.",
       "path": "billing/src/invoice_export.py",
@@ -101,6 +101,6 @@
     {"id": "fact.active_query_filters_state", "artifact_id": "symbol.coder_value_service", "statement": "Active values queries must exclude inactive Tenant Coder values.", "source": "Service regression test", "evidence": ["tenant/tests/test_coder_value_service.py:44-78"], "confidence": "VERIFIED", "freshness": "current", "source_version": "0.1", "scope": "Tenant Coder activation", "owner": "Tenant domain"}
   ],
   "task_profiles": [
-    {"id": "profile.coder_activation", "name": "Activate or deactivate Tenant Coder values", "terms": ["tenant", "coder", "activate", "deactivate", "active", "values"], "expected_artifact_types": ["feature", "endpoint", "symbol", "table", "test", "adr"], "expected_artifacts": ["feature.tenant_coder_activation", "endpoint.coder_values", "symbol.coder_value_service", "symbol.coder_value_repository", "table.tenant_coder_values", "test.active_values_exclude_inactive", "document.adr_coder_activation"]}
+    {"id": "profile.coder_activation", "name": "Activate or deactivate Tenant Coder values", "terms": ["tenant", "coder", "activate", "deactivate", "active", "values"], "expected_artifact_types": ["feature", "endpoint", "symbol", "table", "test", "document"], "expected_artifacts": ["feature.tenant_coder_activation", "endpoint.coder_values", "symbol.coder_value_service", "symbol.coder_value_repository", "table.tenant_coder_values", "test.active_values_exclude_inactive", "document.adr_coder_activation"]}
   ]
 }
