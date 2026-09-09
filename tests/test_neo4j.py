@@ -214,3 +214,31 @@ def test_live_neo4j_ingestion_is_repeatable():
     )
 
     assert first == second
+
+    from neo4j import GraphDatabase
+
+    with GraphDatabase.driver(
+        os.environ["SEKR_NEO4J_URI"],
+        auth=(os.environ["SEKR_NEO4J_USER"], os.environ["SEKR_NEO4J_PASSWORD"]),
+    ) as driver, driver.session() as session:
+        node_count = session.run(
+            "MATCH (node) WHERE "
+            "(node:Dataset AND node.id = $dataset_id) OR "
+            "(node:Artifact AND node.id IN $artifact_ids) OR "
+            "(node:Fact AND node.id IN $fact_ids) OR "
+            "(node:TaskProfile AND node.id IN $profile_ids) "
+            "RETURN count(node) AS count",
+            dataset_id=projection.dataset.key,
+            artifact_ids=[node.key for node in projection.nodes if node.kind == "Artifact"],
+            fact_ids=[node.key for node in projection.nodes if node.kind == "Fact"],
+            profile_ids=[node.key for node in projection.nodes if node.kind == "TaskProfile"],
+        ).single()["count"]
+        relationship_count = session.run(
+            "MATCH ()-[relationship:RELATES_TO]->() "
+            "WHERE relationship.id IN $relationship_ids "
+            "RETURN count(relationship) AS count",
+            relationship_ids=[relationship.key for relationship in projection.relationships],
+        ).single()["count"]
+
+    assert node_count == first.nodes_written
+    assert relationship_count == first.relationships_written

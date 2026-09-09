@@ -1,6 +1,6 @@
 # SEKR Context Compiler
 
-SEKR is a local, deterministic proof of concept for compiling a bounded context package for the sole supported case: Tenant/Coder activation and deactivation. It reads a curated JSON dataset from SQLite and returns evidence-backed artifacts for a task. It uses no external services.
+SEKR is a local, deterministic proof of concept for compiling a bounded context package for the sole supported case: Tenant/Coder activation and deactivation. It reads a curated JSON dataset from SQLite and returns evidence-backed artifacts for a task. Its default compiler workflow uses no external services; Neo4j is an optional P2 projection target.
 
 ## Setup
 
@@ -113,4 +113,4 @@ The live Neo4j test runs twice against the configured endpoint and compares both
 
 ## Scope boundaries
 
-This PoC is local and deterministic. It supports only Tenant/Coder activation and deactivation. External services, additional domains, automatic oracle generation, live source ingestion, and deferred retrieval features remain deferred.
+This PoC is local and deterministic. It supports only Tenant/Coder activation and deactivation. External source services, additional domains, automatic oracle generation, live source ingestion, and deferred retrieval features remain deferred.

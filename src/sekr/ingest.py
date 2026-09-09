@@ -38,20 +38,23 @@ class GraphProjection:
 def _read_dataset(path: str | Path) -> dict[str, object]:
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise StructuredError(
             "INVALID_DATASET", "Dataset JSON could not be read", {"error": str(error)}
         ) from error
 
 
 def _node_properties(
-    kind: str, record: Mapping[str, object], optional_fields: tuple[str, ...] = ()
+    kind: str,
+    record: Mapping[str, object],
+    absent_defaults: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Copy source data and make absent optional values explicit for adapters."""
     properties = dict(record)
     properties["kind"] = kind
-    for field in optional_fields:
-        properties.setdefault(field, None)
+    for field, value in (absent_defaults or {}).items():
+        if field not in properties:
+            properties[field] = list(value) if isinstance(value, list) else value
     return properties
 
 
@@ -73,13 +76,22 @@ def build_graph_projection(path: str | Path) -> GraphProjection:
     dataset = GraphNode(
         "Dataset",
         metadata["version"],
-        _node_properties("Dataset", metadata, ("description",)),
+        _node_properties("Dataset", metadata, {"description": ""}),
     )
     artifact_nodes = tuple(
         GraphNode(
             "Artifact",
             artifact["id"],
-            _node_properties("Artifact", artifact, ("description", "path")),
+            _node_properties(
+                "Artifact",
+                artifact,
+                {
+                    "description": "",
+                    "path": None,
+                    "evidence": [],
+                    "confidence": "UNKNOWN",
+                },
+            ),
         )
         for artifact in artifacts
     )
@@ -90,7 +102,17 @@ def build_graph_projection(path: str | Path) -> GraphProjection:
             _node_properties(
                 "Fact",
                 fact,
-                ("artifact_id", "source", "freshness", "source_version", "valid_from", "scope", "owner"),
+                {
+                    "artifact_id": None,
+                    "source": "",
+                    "evidence": [],
+                    "confidence": "UNKNOWN",
+                    "freshness": None,
+                    "source_version": "",
+                    "valid_from": None,
+                    "scope": "",
+                    "owner": None,
+                },
             ),
         )
         for fact in facts
@@ -101,8 +123,15 @@ def build_graph_projection(path: str | Path) -> GraphProjection:
             profile["id"],
             _node_properties(
                 "TaskProfile",
-                {**profile, "expected_artifacts": sorted(profile["expected_artifacts"])},
-                ("terms", "expected_artifact_types", "expected_artifacts"),
+                {
+                    **profile,
+                    "expected_artifacts": sorted(profile.get("expected_artifacts", [])),
+                },
+                {
+                    "terms": [],
+                    "expected_artifact_types": [],
+                    "expected_artifacts": [],
+                },
             ),
         )
         for profile in profiles
@@ -152,7 +181,7 @@ def build_graph_projection(path: str | Path) -> GraphProjection:
             _structural_properties("EXPECTS_ARTIFACT"),
         )
         for profile in profiles
-        for artifact_id in sorted(profile["expected_artifacts"])
+        for artifact_id in sorted(profile.get("expected_artifacts", []))
     )
     source_relationships = tuple(
         GraphRelationship(

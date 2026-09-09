@@ -28,6 +28,16 @@ _ARTIFACT_TYPES = (
 )
 _CONFIDENCES = ("VERIFIED", "APPROVED", "INFERRED", "STALE", "CONFLICTED", "UNKNOWN")
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
+_ALLOWED_FIELDS = {
+    "metadata": {"version", "source_commit", "generated_at", "description"},
+    "artifacts": {"id", "artifact_type", "title", "description", "path", "evidence", "confidence"},
+    "relations": {"id", "source_id", "target_id", "relation_type", "evidence", "confidence"},
+    "facts": {
+        "id", "artifact_id", "statement", "source", "evidence", "confidence",
+        "freshness", "source_version", "valid_from", "scope", "owner",
+    },
+    "task_profiles": {"id", "name", "terms", "expected_artifact_types", "expected_artifacts"},
+}
 
 
 @dataclass(frozen=True)
@@ -127,7 +137,7 @@ def init_db(path: str | Path) -> None:
 def _read_dataset(dataset_json: str | Path) -> dict[str, object]:
     try:
         return json.loads(Path(dataset_json).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise StructuredError("INVALID_DATASET", "Dataset JSON could not be read", {"error": str(error)}) from error
 
 
@@ -151,9 +161,26 @@ def _require_string_list(value: object, field: str, code: str, identifier: objec
         raise StructuredError(code, f"{field} must contain only non-blank strings", {"id": identifier, "field": field})
 
 
+def _require_known_fields(
+    record: object, record_type: str, identifier: object = None
+) -> dict[str, object]:
+    if not isinstance(record, dict):
+        raise StructuredError(
+            "INVALID_DATASET", f"{record_type} must be an object", {"id": identifier}
+        )
+    unexpected = sorted(set(record) - _ALLOWED_FIELDS[record_type])
+    if unexpected:
+        raise StructuredError(
+            "INVALID_DATASET",
+            f"{record_type} contains unsupported fields",
+            {"id": identifier, "fields": unexpected},
+        )
+    return record
+
+
 def _validate_raw_dataset(data: dict[str, object]) -> None:
     """Check data that model normalization or SQLite constraints would obscure."""
-    metadata = data["metadata"]
+    metadata = _require_known_fields(data["metadata"], "metadata")
     for field in ("version", "source_commit", "generated_at"):
         _require_text(metadata.get(field), field, "INVALID_METADATA")
     required_fields = {
@@ -166,6 +193,7 @@ def _validate_raw_dataset(data: dict[str, object]) -> None:
         if not isinstance(data[collection], list):
             raise StructuredError("INVALID_DATASET", f"{collection} must be a list")
         for record in data[collection]:
+            record = _require_known_fields(record, collection, record.get("id") if isinstance(record, dict) else None)
             for field in fields:
                 _require_text(record.get(field), field, "INVALID_DATASET", record.get("id"))
             if collection in {"artifacts", "relations", "facts"}:
@@ -182,6 +210,13 @@ def _validate_raw_dataset(data: dict[str, object]) -> None:
                 for artifact_type in record.get("expected_artifact_types", ()):
                     if artifact_type not in _ARTIFACT_TYPES:
                         raise StructuredError("INVALID_ARTIFACT_TYPE", "Unsupported task profile artifact type", {"id": record["id"]})
+        identifiers = [record["id"] for record in data[collection]]
+        if len(identifiers) != len(set(identifiers)):
+            raise StructuredError(
+                "INVALID_DATASET",
+                f"{collection} contains duplicate IDs",
+                {"collection": collection},
+            )
     records = (
         ("artifacts", data["artifacts"]),
         ("relations", data["relations"]),

@@ -1,8 +1,8 @@
 # SEKR P2 Ingestion and Neo4j Design
 
-**Date:** 2026-09-09  
-**Status:** Approved design  
-**Scope:** P2 ingestion and Neo4j persistence  
+**Date:** 2026-09-09
+**Status:** Approved design
+**Scope:** P2 ingestion and Neo4j persistence
 **Depends on:** P0/P1 JSON dataset, SQLite validator, and Context Compiler
 
 ## Objective
@@ -141,4 +141,3 @@ P2 is complete when:
   `SEKR_NEO4J_USER`, and `SEKR_NEO4J_PASSWORD` are provided, and is skipped
   otherwise.
 - The pre-existing P0/P1 suite remains green.
-

@@ -113,6 +113,75 @@ def test_projection_preserves_metadata_profile_fact_and_optional_properties(tmp_
     assert artifact.properties["path"] is None
 
 
+@pytest.mark.parametrize("collection", ("artifacts", "relations", "facts", "task_profiles"))
+def test_projection_rejects_duplicate_record_ids_before_projection(tmp_path, collection):
+    """Catches JSON duplicate IDs that SQLite primary keys would reject."""
+    data = json.loads(DATASET.read_text(encoding="utf-8"))
+    data[collection].append(dict(data[collection][0]))
+    source = tmp_path / f"duplicate-{collection}.json"
+    source.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(StructuredError) as error:
+        build_graph_projection(source)
+
+    assert error.value.code == "INVALID_DATASET"
+
+
+@pytest.mark.parametrize(
+    "collection",
+    ("metadata", "artifacts", "relations", "facts", "task_profiles"),
+)
+def test_projection_rejects_unknown_model_fields_before_projection(tmp_path, collection):
+    """Catches fields P1 dataclass construction would reject during a load."""
+    data = json.loads(DATASET.read_text(encoding="utf-8"))
+    record = data[collection] if collection == "metadata" else data[collection][0]
+    record["unexpected"] = "value"
+    source = tmp_path / f"unknown-{collection}.json"
+    source.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(StructuredError) as error:
+        build_graph_projection(source)
+
+    assert error.value.code == "INVALID_DATASET"
+
+
+def test_projection_normalizes_omitted_profile_expected_artifacts_to_empty(tmp_path):
+    """Catches valid profiles without optional expected-artifact references crashing P2."""
+    data = json.loads(DATASET.read_text(encoding="utf-8"))
+    data["task_profiles"][0].pop("expected_artifacts")
+    source = tmp_path / "profile-without-expected-artifacts.json"
+    source.write_text(json.dumps(data), encoding="utf-8")
+
+    projection = build_graph_projection(source)
+    profile = next(node for node in projection.nodes if node.kind == "TaskProfile")
+
+    assert profile.properties["expected_artifacts"] == []
+    assert not any(
+        relationship.properties["relation_type"] == "EXPECTS_ARTIFACT"
+        for relationship in projection.relationships
+    )
+
+
+def test_projection_materializes_artifact_and_fact_provenance_defaults(tmp_path):
+    """Catches omitted provenance retaining stale values on a later Neo4j MERGE."""
+    data = json.loads(DATASET.read_text(encoding="utf-8"))
+    data["artifacts"][0].pop("evidence")
+    data["artifacts"][0].pop("confidence")
+    data["facts"][0].pop("evidence")
+    data["facts"][0].pop("confidence")
+    source = tmp_path / "default-provenance.json"
+    source.write_text(json.dumps(data), encoding="utf-8")
+
+    projection = build_graph_projection(source)
+    artifact = next(node for node in projection.nodes if node.key == data["artifacts"][0]["id"])
+    fact = next(node for node in projection.nodes if node.key == data["facts"][0]["id"])
+
+    assert artifact.properties["evidence"] == []
+    assert artifact.properties["confidence"] == "UNKNOWN"
+    assert fact.properties["evidence"] == []
+    assert fact.properties["confidence"] == "UNKNOWN"
+
+
 def test_invalid_relation_target_fails_before_projection(tmp_path):
     """Catches a graph projection being created from a dangling relation."""
     data = json.loads(DATASET.read_text(encoding="utf-8"))

@@ -5,10 +5,12 @@ import sqlite3
 import subprocess
 import sys
 import textwrap
+from unittest.mock import Mock
 
 import pytest
 
 from sekr.db import init_db, load_dataset
+from sekr.neo4j import IngestSummary
 
 
 @pytest.fixture
@@ -222,27 +224,39 @@ def test_ingest_neo4j_requires_connection_values_for_live_run(runner):
     assert password not in result.stdout
 
 
-def test_ingest_neo4j_uses_environment_connection_values_with_adapter_subprocess():
-    result = run_with_patched_neo4j_adapter(
-        "ingest",
-        "neo4j",
-        "--source",
-        "data/coder_activation.json",
-        env={
-            "SEKR_NEO4J_URI": "bolt://example.test:7687",
-            "SEKR_NEO4J_USER": "sekr",
-            "SEKR_NEO4J_PASSWORD": "environment-password",
-        },
-    )
+def test_ingest_neo4j_forwards_exact_environment_connection_values(monkeypatch, capsys):
+    from sekr import cli
 
-    assert result.returncode == 0
-    assert result.stderr == ""
-    assert json.loads(result.stdout) == {
+    adapter = Mock(return_value=IngestSummary(nodes_written=13, relationships_written=25))
+    monkeypatch.setattr(cli, "write_projection", adapter)
+    monkeypatch.setenv("SEKR_NEO4J_URI", "bolt://example.test:7687")
+    monkeypatch.setenv("SEKR_NEO4J_USER", "sekr")
+    monkeypatch.setenv("SEKR_NEO4J_PASSWORD", "environment-password")
+
+    assert cli.main(("ingest", "neo4j", "--source", "data/coder_activation.json")) == 0
+    assert json.loads(capsys.readouterr().out) == {
         "dry_run": False,
         "dataset_version": "0.1.0",
         "nodes_written": 13,
         "relationships_written": 25,
     }
+    _, keyword_arguments = adapter.call_args
+    assert keyword_arguments == {
+        "uri": "bolt://example.test:7687",
+        "user": "sekr",
+        "password": "environment-password",
+    }
+
+
+def test_ingest_neo4j_maps_invalid_utf8_to_invalid_dataset(tmp_path, runner):
+    source = tmp_path / "invalid-utf8.json"
+    source.write_bytes(b"\xff")
+
+    result = runner("ingest", "neo4j", "--source", str(source), "--dry-run")
+
+    assert result.returncode == 1
+    assert result.stderr == ""
+    assert json.loads(result.stdout)["error"]["code"] == "INVALID_DATASET"
 
 
 def test_ingest_neo4j_never_emits_live_password_with_adapter_subprocess():
