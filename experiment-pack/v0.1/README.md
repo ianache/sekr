@@ -29,6 +29,11 @@ caller-provided output directory: `dataset-load.json`,
 `EXPERIMENT_REPORT.md`. A fresh SQLite database is created inside that output
 directory for each run.
 
+The committed final result for this pack is
+[`reports/EXPERIMENT_REPORT.md`](reports/EXPERIMENT_REPORT.md). It records the
+controlled case, command protocol, metrics, reproducibility evidence, and the
+P0 decision without reproducing evaluation-only oracle contents.
+
 ## Run the experiment
 
 Run the reproducible Windows runner from the repository root:
@@ -44,6 +49,10 @@ for `activate coder values` at budget `K = 6`, evaluates the
 `coder-activation` case at the same budget, compares metrics with the canonical
 expectations, checks explicit truncation and selected-item provenance, and
 produces a GO decision only when acceptance passes.
+
+Run it with PowerShell 7+ (`pwsh`), which supplies the .NET process argument
+API used by the runner. The committed report can be inspected independently of
+the per-run output directory.
 
 ## Scope
 

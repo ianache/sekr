@@ -14,6 +14,7 @@ PACK = ROOT / "experiment-pack" / "v0.1"
 DATASET = ROOT / "data" / "coder_activation.json"
 ORACLE = ROOT / "data" / "oracle" / "coder_activation.json"
 RUNNER = PACK / "run-experiment.ps1"
+REPORT = PACK / "reports" / "EXPERIMENT_REPORT.md"
 PROBE = ROOT / "build-standalone-probe-20260908" / "dist" / "sekr.exe"
 RUNTIME_ARTIFACT_TYPES = {
     "feature",
@@ -37,6 +38,30 @@ def test_pack_declares_p0_p1_contract():
     assert expected["case"] == "coder-activation"
     assert expected["budget"] == 6
     assert expected["acceptance"]["compilerCriticalRecall"] == 1.0
+
+
+def test_final_report_preserves_the_approved_experiment_contract_without_oracle_disclosure():
+    """Catches a final report that omits an approval result or leaks oracle data."""
+    report = REPORT.read_text(encoding="utf-8")
+    oracle = json.loads(ORACLE.read_text(encoding="utf-8"))
+
+    assert "coder-activation" in report
+    for section in (
+        "## Inputs",
+        "## Commands",
+        "## Baseline metrics",
+        "## Compiler metrics",
+        "## Reproducibility",
+        "## Acceptance results",
+        "## Decision",
+    ):
+        assert section in report
+    assert report.rstrip().endswith("GO")
+    assert "FAIL:" not in report
+    assert "expected_artifact_ids" not in report
+    assert "critical_artifact_ids" not in report
+    assert all(artifact_id not in report for artifact_id in oracle["expected_artifact_ids"])
+    assert all(artifact_id not in report for artifact_id in oracle["critical_artifact_ids"])
 
 
 def test_oracle_ids_exist_in_fixture_and_critical_ids_are_expected():
