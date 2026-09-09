@@ -1,0 +1,24 @@
+{
+  "case": "coder-activation",
+  "budget": 6,
+  "acceptance": {
+    "compilerPrecisionAtKAtLeastBaseline": true,
+    "compilerCriticalRecall": 1.0,
+    "compilerFalsePositiveRateAtMostBaseline": true,
+    "reproducible": true,
+    "maxSelectedItems": 6,
+    "oracleNotExposed": true
+  },
+  "expectedFixture": {
+    "compiler": {
+      "precisionAtK": 1.0,
+      "criticalRecall": 1.0,
+      "falsePositiveRate": 0.0
+    },
+    "baseline": {
+      "precisionAtK": 0.8333333333333334,
+      "criticalRecall": 0.75,
+      "falsePositiveRate": 0.5
+    }
+  }
+}
