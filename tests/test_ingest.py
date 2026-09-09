@@ -15,6 +15,8 @@ def test_projection_has_expected_fixture_counts_and_version():
     """Catches omitted source records or graph edges during projection."""
     projection = build_graph_projection(DATASET)
 
+    assert projection.dataset.kind == "Dataset"
+    assert projection.dataset.key == "0.1.0"
     assert projection.dataset.properties["version"] == "0.1.0"
     assert {node.kind for node in projection.nodes} == {"Artifact", "Fact", "TaskProfile"}
     assert Counter(node.kind for node in projection.nodes) == {

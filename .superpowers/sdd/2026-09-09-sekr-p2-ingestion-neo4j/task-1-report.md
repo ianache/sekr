@@ -95,3 +95,26 @@ were applied.
 ### Concerns
 
 None.
+
+## Fix round 2
+
+### Change
+
+- Added explicit dataset-node identity assertions: the projection dataset has
+  kind `Dataset` and stable key/version `0.1.0`.
+
+### Verification
+
+- `pytest -q tests/test_ingest.py` → `6 passed in 0.25s`
+- `pytest -q` → `137 passed in 27.79s`
+
+### Self-review
+
+- The assertion checks the public projection record rather than implementation
+  details and complements the existing dataset metadata assertion.
+- No production behavior changed; scope is limited to the requested test and
+  Task 1 report.
+
+### Concerns
+
+None.
