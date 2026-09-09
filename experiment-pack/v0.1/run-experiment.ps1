@@ -1,15 +1,29 @@
 [CmdletBinding()]
 param(
-    [string]$Exe = (Join-Path $PSScriptRoot "..\..\build-standalone-probe-20260908\dist\sekr.exe"),
-    [string]$Dataset = (Join-Path $PSScriptRoot "..\..\data\coder_activation.json"),
-    [string]$Oracle = (Join-Path $PSScriptRoot "..\..\data\oracle\coder_activation.json"),
-    [string]$Expected = (Join-Path $PSScriptRoot "expected-results.json"),
+    [string]$Exe,
+    [string]$Dataset,
+    [string]$Oracle,
+    [string]$Expected,
     [Parameter(Mandatory)]
     [string]$OutputDir
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+$repositoryRoot = Join-Path $PSScriptRoot "..\.."
+if ([string]::IsNullOrWhiteSpace($Exe)) {
+    $Exe = Join-Path $repositoryRoot "build-standalone-probe-20260908\dist\sekr.exe"
+}
+if ([string]::IsNullOrWhiteSpace($Dataset)) {
+    $Dataset = Join-Path $repositoryRoot "data\coder_activation.json"
+}
+if ([string]::IsNullOrWhiteSpace($Oracle)) {
+    $Oracle = Join-Path $repositoryRoot "data\oracle\coder_activation.json"
+}
+if ([string]::IsNullOrWhiteSpace($Expected)) {
+    $Expected = Join-Path $PSScriptRoot "expected-results.json"
+}
 
 function Resolve-InputFile([string]$Path, [string]$Name) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -18,15 +32,28 @@ function Resolve-InputFile([string]$Path, [string]$Name) {
     return (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
 }
 
+function ConvertTo-WindowsCommandLineArgument([string]$Value) {
+    if ($Value.Length -eq 0) {
+        return '""'
+    }
+    if ($Value -notmatch '[\s"]') {
+        return $Value
+    }
+
+    $escaped = [regex]::Replace($Value, '(\\*)"', '$1$1\\"')
+    $escaped = [regex]::Replace($escaped, '(\\*)$', '$1$1')
+    return '"' + $escaped + '"'
+}
+
 function Invoke-Sekr([string]$Executable, [string[]]$Arguments, [string]$CapturePath) {
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $Executable
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    foreach ($argument in $Arguments) {
-        [void]$startInfo.ArgumentList.Add($argument)
-    }
+    $startInfo.Arguments = (@($Arguments | ForEach-Object {
+        ConvertTo-WindowsCommandLineArgument ([string]$_)
+    }) -join ' ')
 
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
@@ -168,12 +195,12 @@ $report = @(
     ""
     "## Commands"
     ""
-    "```text"
+    '```text'
     "$exePath $($loadArguments -join ' ')"
     "$exePath $($validateArguments -join ' ')"
     "$exePath $($compileArguments -join ' ')"
     "$exePath $($evaluationArguments -join ' ')"
-    "```"
+    '```'
     ""
     "## Baseline metrics"
     ""

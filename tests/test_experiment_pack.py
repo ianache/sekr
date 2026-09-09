@@ -15,7 +15,7 @@ DATASET = ROOT / "data" / "coder_activation.json"
 ORACLE = ROOT / "data" / "oracle" / "coder_activation.json"
 RUNNER = PACK / "run-experiment.ps1"
 REPORT = PACK / "reports" / "EXPERIMENT_REPORT.md"
-PROBE = ROOT / "build-standalone-probe-20260908" / "dist" / "sekr.exe"
+PROBE = ROOT.parent.parent / "build-standalone-probe-20260908" / "dist" / "sekr.exe"
 RUNTIME_ARTIFACT_TYPES = {
     "feature",
     "endpoint",
@@ -58,6 +58,29 @@ def test_final_report_preserves_the_approved_experiment_contract_without_oracle_
         assert section in report
     assert report.rstrip().endswith("GO")
     assert "FAIL:" not in report
+    for metric in (
+        "- precisionAtK: 0.8333333333333334",
+        "- criticalRecall: 0.75",
+        "- falsePositiveRate: 0.5",
+        "- precisionAtK: 1.0",
+        "- criticalRecall: 1.0",
+        "- falsePositiveRate: 0.0",
+        "- Deterministic repeated compiler output: True",
+    ):
+        assert metric in report
+    acceptance_results = {
+        "- PASS: Compiler precisionAtK is at least baseline",
+        "- PASS: Compiler criticalRecall equals expected threshold",
+        "- PASS: Compiler falsePositiveRate is at most baseline",
+        "- PASS: Compiler result is reproducible",
+        "- PASS: Compiler context is within budget",
+        "- PASS: Truncation reports omittedCount and budget_truncated",
+        "- PASS: Selected artifacts and facts retain valid evidence/confidence provenance",
+        "- PASS: Evaluation output does not expose oracle IDs",
+        "- PASS: Compiler fixture metrics match expected results",
+        "- PASS: Baseline fixture metrics match expected results",
+    }
+    assert {line for line in report.splitlines() if line.startswith("- PASS:")} == acceptance_results
     assert "expected_artifact_ids" not in report
     assert "critical_artifact_ids" not in report
     assert all(artifact_id not in report for artifact_id in oracle["expected_artifact_ids"])
@@ -109,16 +132,16 @@ def test_runner_executes_fixture_and_writes_experiment_outputs(tmp_path):
     """Catches a missing runner or a runner that does not produce its pack contract."""
     assert RUNNER.is_file()
 
-    pwsh = shutil.which("pwsh")
-    if pwsh is None:
-        pytest.skip("pwsh is unavailable; cannot run the Windows runner smoke test")
+    powershell = shutil.which("pwsh") or shutil.which("powershell")
+    if powershell is None:
+        pytest.skip("No PowerShell executable is available; cannot run the runner smoke test")
     if not PROBE.is_file():
         pytest.skip("standalone probe executable is unavailable; cannot run the runner smoke test")
 
     output_dir = tmp_path / "experiment-output"
     result = subprocess.run(
         [
-            pwsh,
+            powershell,
             "-NoProfile",
             "-File",
             str(RUNNER),
