@@ -56,7 +56,7 @@ def _node_properties(
 
 
 def _structural_properties(relation_type: str) -> dict[str, object]:
-    return {"relation_type": relation_type, "evidence": [], "confidence": "UNKNOWN"}
+    return {"relation_type": relation_type, "evidence": None, "confidence": "UNKNOWN"}
 
 
 def build_graph_projection(path: str | Path) -> GraphProjection:
@@ -101,7 +101,7 @@ def build_graph_projection(path: str | Path) -> GraphProjection:
             profile["id"],
             _node_properties(
                 "TaskProfile",
-                profile,
+                {**profile, "expected_artifacts": sorted(profile["expected_artifacts"])},
                 ("terms", "expected_artifact_types", "expected_artifacts"),
             ),
         )
@@ -152,7 +152,7 @@ def build_graph_projection(path: str | Path) -> GraphProjection:
             _structural_properties("EXPECTS_ARTIFACT"),
         )
         for profile in profiles
-        for artifact_id in profile["expected_artifacts"]
+        for artifact_id in sorted(profile["expected_artifacts"])
     )
     source_relationships = tuple(
         GraphRelationship(
