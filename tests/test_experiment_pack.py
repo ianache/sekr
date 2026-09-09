@@ -76,7 +76,7 @@ def test_final_report_preserves_the_approved_experiment_contract_without_oracle_
         "- PASS: Compiler context is within budget",
         "- PASS: Truncation reports omittedCount and budget_truncated",
         "- PASS: Selected artifacts and facts retain valid evidence/confidence provenance",
-        "- PASS: Evaluation output does not expose oracle IDs",
+        "- PASS: Compiler and evaluation output do not expose oracle data",
         "- PASS: Compiler fixture metrics match expected results",
         "- PASS: Baseline fixture metrics match expected results",
     }
@@ -165,6 +165,40 @@ def test_runner_executes_fixture_and_writes_experiment_outputs(tmp_path):
         "environment.json",
         "EXPERIMENT_REPORT.md",
     } <= {path.name for path in output_dir.iterdir()}
+
+
+def test_runner_rejects_compiler_output_oracle_disclosure(tmp_path):
+    """Catches compiler disclosure that evaluation-only checks cannot see."""
+    powershell = shutil.which("pwsh") or shutil.which("powershell")
+    if powershell is None:
+        pytest.skip("No PowerShell executable is available; cannot test runner acceptance logic")
+
+    runner = str(RUNNER).replace("'", "''")
+    oracle = str(ORACLE).replace("'", "''")
+    output_dir = str(tmp_path / "acceptance-helper").replace("'", "''")
+    command = f"""
+$ErrorActionPreference = 'Stop'
+. '{runner}' -OutputDir '{output_dir}' -SkipExecution
+$oraclePayload = Get-Content -LiteralPath '{oracle}' -Raw | ConvertFrom-Json
+$oracleIds = @($oraclePayload.expected_artifact_ids) + @($oraclePayload.critical_artifact_ids)
+$selected = '{{"items":[{{"id":"' + $oracleIds[0] + '"}}]}}'
+if (-not (Test-CompilerOutputConfidentiality $selected $oracleIds)) {{ exit 1 }}
+$disclosure = '{{"items":[{{"id":"' + $oracleIds[0] + '"}}],"leak":"' + $oraclePayload.expected_artifact_ids[-1] + '"}}'
+if (Test-CompilerOutputConfidentiality $disclosure $oracleIds) {{ exit 2 }}
+foreach ($probe in @('expected_artifact_ids', 'critical_artifact_ids')) {{
+    if (Test-CompilerOutputConfidentiality ('{{"items":[],"leak":"' + $probe + '"}}') $oracleIds) {{ exit 3 }}
+}}
+exit 0
+"""
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-Command", command],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def run_fixture_compile(tmp_path):

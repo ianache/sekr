@@ -5,7 +5,8 @@ param(
     [string]$Oracle,
     [string]$Expected,
     [Parameter(Mandatory)]
-    [string]$OutputDir
+    [string]$OutputDir,
+    [switch]$SkipExecution
 )
 
 Set-StrictMode -Version Latest
@@ -112,6 +113,51 @@ function Test-CompileProvenance([object]$Compilation) {
     return $true
 }
 
+function Test-CompilerOutputConfidentiality([string]$CompilerOutput, [string[]]$OracleIds) {
+    foreach ($fieldName in @("expected_artifact_ids", "critical_artifact_ids")) {
+        if ($CompilerOutput.IndexOf($fieldName, [System.StringComparison]::Ordinal) -ge 0) {
+            return $false
+        }
+    }
+
+    try {
+        $compilerPayload = $CompilerOutput | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        return $false
+    }
+
+    $selectedIds = @($compilerPayload.items | ForEach-Object { [string]$_.id })
+    foreach ($oracleId in $OracleIds) {
+        if ([string]::IsNullOrEmpty($oracleId) -or $selectedIds -contains $oracleId) {
+            continue
+        }
+        if ($CompilerOutput.IndexOf($oracleId, [System.StringComparison]::Ordinal) -ge 0) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Test-OracleDisclosureFreeOutput([string]$Output, [string[]]$OracleIds) {
+    foreach ($fieldName in @("expected_artifact_ids", "critical_artifact_ids")) {
+        if ($Output.IndexOf($fieldName, [System.StringComparison]::Ordinal) -ge 0) {
+            return $false
+        }
+    }
+    foreach ($oracleId in $OracleIds) {
+        if (-not [string]::IsNullOrEmpty($oracleId) -and
+            $Output.IndexOf($oracleId, [System.StringComparison]::Ordinal) -ge 0) {
+            return $false
+        }
+    }
+    return $true
+}
+
+if ($SkipExecution) {
+    return
+}
+
 $exePath = Resolve-InputFile $Exe "Executable"
 $datasetPath = Resolve-InputFile $Dataset "Dataset"
 $oraclePath = Resolve-InputFile $Oracle "Oracle"
@@ -163,10 +209,15 @@ try {
     $compilation = $compileStdout | ConvertFrom-Json -ErrorAction Stop
     $evaluation = $evaluationStdout | ConvertFrom-Json -ErrorAction Stop
     $expectedResults = Get-Content -LiteralPath $expectedPath -Raw | ConvertFrom-Json -ErrorAction Stop
+    $oracleResults = Get-Content -LiteralPath $oraclePath -Raw | ConvertFrom-Json -ErrorAction Stop
 }
 catch {
     throw "Could not parse compilation, evaluation, or expected results JSON: $($_.Exception.Message)"
 }
+$oracleIds = @($oracleResults.expected_artifact_ids) + @($oracleResults.critical_artifact_ids)
+$compilerDisclosurePassed = (Test-CompilerOutputConfidentiality $compileStdout $oracleIds) -and
+    (Test-CompilerOutputConfidentiality (Get-Content -LiteralPath $compilePath -Raw) $oracleIds)
+$evaluationDisclosurePassed = Test-OracleDisclosureFreeOutput $evaluationStdout $oracleIds
 
 $acceptance = @(
     [pscustomobject]@{ Rule = "Compiler precisionAtK is at least baseline"; Passed = ($evaluation.compiler.precisionAtK -ge $evaluation.baseline.precisionAtK) }
@@ -176,7 +227,7 @@ $acceptance = @(
     [pscustomobject]@{ Rule = "Compiler context is within budget"; Passed = ($evaluation.compiler.contextSize -le $expectedResults.acceptance.maxSelectedItems) }
     [pscustomobject]@{ Rule = "Truncation reports omittedCount and budget_truncated"; Passed = (($compilation.omittedCount -gt 0) -and ($compilation.warnings -contains "budget_truncated")) }
     [pscustomobject]@{ Rule = "Selected artifacts and facts retain valid evidence/confidence provenance"; Passed = (Test-CompileProvenance $compilation) }
-    [pscustomobject]@{ Rule = "Evaluation output does not expose oracle IDs"; Passed = (($evaluationStdout -notmatch "expected_artifact_ids") -and ($evaluationStdout -notmatch "critical_artifact_ids")) }
+    [pscustomobject]@{ Rule = "Compiler and evaluation output do not expose oracle data"; Passed = ($compilerDisclosurePassed -and $evaluationDisclosurePassed) }
     [pscustomobject]@{ Rule = "Compiler fixture metrics match expected results"; Passed = ((Test-MetricEqual $evaluation.compiler.precisionAtK $expectedResults.expectedFixture.compiler.precisionAtK) -and (Test-MetricEqual $evaluation.compiler.criticalRecall $expectedResults.expectedFixture.compiler.criticalRecall) -and (Test-MetricEqual $evaluation.compiler.falsePositiveRate $expectedResults.expectedFixture.compiler.falsePositiveRate)) }
     [pscustomobject]@{ Rule = "Baseline fixture metrics match expected results"; Passed = ((Test-MetricEqual $evaluation.baseline.precisionAtK $expectedResults.expectedFixture.baseline.precisionAtK) -and (Test-MetricEqual $evaluation.baseline.criticalRecall $expectedResults.expectedFixture.baseline.criticalRecall) -and (Test-MetricEqual $evaluation.baseline.falsePositiveRate $expectedResults.expectedFixture.baseline.falsePositiveRate)) }
 )
