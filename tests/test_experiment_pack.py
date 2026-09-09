@@ -1,11 +1,17 @@
 import json
 from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
 
 
 ROOT = Path(__file__).parents[1]
 PACK = ROOT / "experiment-pack" / "v0.1"
 DATASET = ROOT / "data" / "coder_activation.json"
 ORACLE = ROOT / "data" / "oracle" / "coder_activation.json"
+RUNNER = PACK / "run-experiment.ps1"
+PROBE = ROOT / "build-standalone-probe-20260908" / "dist" / "sekr.exe"
 
 
 def pack_files():
@@ -40,3 +46,41 @@ def test_ontology_declares_every_fixture_relationship_type():
     relation_types = {relation["relation_type"].upper() for relation in fixture["relations"]}
 
     assert all(f"`{relation_type}`" in ontology for relation_type in relation_types)
+
+
+def test_runner_executes_fixture_and_writes_experiment_outputs(tmp_path):
+    """Catches a missing runner or a runner that does not produce its pack contract."""
+    assert RUNNER.is_file()
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("pwsh is unavailable; cannot run the Windows runner smoke test")
+    if not PROBE.is_file():
+        pytest.skip("standalone probe executable is unavailable; cannot run the runner smoke test")
+
+    output_dir = tmp_path / "experiment-output"
+    result = subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-File",
+            str(RUNNER),
+            "-Exe",
+            str(PROBE),
+            "-OutputDir",
+            str(output_dir),
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert {
+        "dataset-load.json",
+        "dataset-validate.json",
+        "evaluation.json",
+        "environment.json",
+        "EXPERIMENT_REPORT.md",
+    } <= {path.name for path in output_dir.iterdir()}

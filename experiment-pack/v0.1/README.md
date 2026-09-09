@@ -23,15 +23,15 @@ does not perform live repository ingestion.
 
 ## Outputs
 
-The future runner will write captured CLI JSON and a human-readable report to a
+The runner writes captured CLI JSON and a human-readable report to a
 caller-provided output directory: `dataset-load.json`,
 `dataset-validate.json`, `evaluation.json`, `environment.json`, and
 `EXPERIMENT_REPORT.md`. A fresh SQLite database is created inside that output
 directory for each run.
 
-## Future runner command
+## Run the experiment
 
-Task 2 will introduce the reproducible Windows runner. Its direct invocation is:
+Run the reproducible Windows runner from the repository root:
 
 ```powershell
 pwsh -NoProfile -File .\experiment-pack\v0.1\run-experiment.ps1 `
@@ -39,7 +39,7 @@ pwsh -NoProfile -File .\experiment-pack\v0.1\run-experiment.ps1 `
   -OutputDir .\experiment-pack\v0.1\reports\latest
 ```
 
-The runner will load and validate the fixture, evaluate the `coder-activation`
+The runner loads and validates the fixture, evaluates the `coder-activation`
 case at budget `K = 6`, compare metrics with the canonical expectations, check
 reproducibility, and produce a GO decision only when acceptance passes.
 
