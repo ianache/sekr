@@ -223,3 +223,6 @@ def test_evaluator_meets_expected_results_acceptance(tmp_path):
     assert compiler["contextSize"] <= acceptance["maxSelectedItems"]
     assert "expected_artifact_ids" not in result.stdout
     assert "critical_artifact_ids" not in result.stdout
+    oracle_ids = set(json.loads(ORACLE.read_text(encoding="utf-8"))["expected_artifact_ids"])
+    oracle_ids.update(json.loads(ORACLE.read_text(encoding="utf-8"))["critical_artifact_ids"])
+    assert all(oracle_id not in result.stdout for oracle_id in oracle_ids)

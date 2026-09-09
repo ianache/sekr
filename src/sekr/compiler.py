@@ -335,7 +335,7 @@ class ContextCompiler:
         facts = tuple(fact for records in facts_by_artifact.values() for fact in records)
         return {
             "requirements": tuple(by_type.get("feature", ())) + facts,
-            "architectural_constraints": tuple(by_type.get("adr", ())),
+            "architectural_constraints": tuple(by_type.get("adr", ())) + tuple(by_type.get("document", ())),
             "relevant_symbols": tuple(by_type.get("symbol", ())),
             "execution_flows": tuple(by_type.get("endpoint", ())),
             "persistence_schema": tuple(by_type.get("repository", ())) + tuple(by_type.get("table", ())),

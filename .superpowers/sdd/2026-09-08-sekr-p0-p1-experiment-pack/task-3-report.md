@@ -64,3 +64,26 @@ compatible.
 
 - Focused compatibility suite: `pytest -q tests/test_experiment_pack.py tests/test_compiler.py` → **34 passed, 1 skipped**.
 - Full suite: `pytest -q` → **128 passed, 1 skipped**.
+
+## Fix round 1
+
+The review identified that changing the real ADR to `document` exposed a
+compiler regression: `_sections` only populated `architectural_constraints`
+from the legacy `adr` type, and the prior test had been weakened to expect an
+empty section. The fix restored the test expectation first and observed the
+expected failure, then updated the compiler to concatenate both legacy `adr`
+and supported `document` artifact buckets. Legacy `adr` support is retained.
+
+The evaluator acceptance test now rejects every raw ID from both oracle lists,
+in addition to rejecting the oracle field names.
+
+Verification after the fix:
+
+- Focused: `pytest -q tests/test_compiler.py tests/test_experiment_pack.py` →
+  **34 passed, 1 skipped**.
+- Full: `pytest -q` → **128 passed, 1 skipped**.
+
+The earlier note that the compiler architectural section was expected to stay
+empty referred to the interim review-fix state and is superseded by this
+round-1 correction: document-typed ADRs are now included alongside legacy
+`adr` artifacts.
