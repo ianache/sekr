@@ -1,0 +1,17 @@
+{
+  "expected_artifact_ids": [
+    "feature.tenant_coder_activation",
+    "endpoint.coder_values",
+    "symbol.coder_value_service",
+    "symbol.coder_value_repository",
+    "table.tenant_coder_values",
+    "test.active_values_exclude_inactive",
+    "document.adr_coder_activation"
+  ],
+  "critical_artifact_ids": [
+    "feature.tenant_coder_activation",
+    "endpoint.coder_values",
+    "symbol.coder_value_service",
+    "test.active_values_exclude_inactive"
+  ]
+}

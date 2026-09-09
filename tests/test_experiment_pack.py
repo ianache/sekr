@@ -31,3 +31,12 @@ def test_oracle_ids_exist_in_fixture_and_critical_ids_are_expected():
 
     assert expected_ids <= fixture_ids
     assert critical_ids <= expected_ids
+
+
+def test_ontology_declares_every_fixture_relationship_type():
+    fixture = json.loads(DATASET.read_text(encoding="utf-8"))
+    ontology = (PACK / "ontology.md").read_text(encoding="utf-8")
+
+    relation_types = {relation["relation_type"].upper() for relation in fixture["relations"]}
+
+    assert all(f"`{relation_type}`" in ontology for relation_type in relation_types)

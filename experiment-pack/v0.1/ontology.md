@@ -35,13 +35,16 @@ in this increment.
 | `CONSTRAINED_BY` | Feature or component is constrained by an ADR or document |
 | `DEPENDS_ON` | Artifact depends on another artifact |
 | `CALLS` | Symbol or endpoint invokes another symbol |
+| `USES` | An artifact uses another artifact as part of its implementation |
 | `DOCUMENTED_BY` | Artifact is described by a document |
 | `AFFECTS` | Future change affects an artifact or fact |
 | `EVIDENCED_BY` | Fact or artifact is supported by a document or evidence source |
 
 The fixture stores relation vocabulary in lowercase (for example,
-`exposed_by`, `calls`, and `persists_to`); these values map directly to the
-canonical names above. The fixture uses a subset of the vocabulary.
+`exposed_by`, `calls`, `uses`, and `persists_to`); these values correspond
+directly to the canonical names above. `uses` is explicitly represented as
+`USES`; it is not silently remapped to another relationship. The fixture uses a
+subset of the vocabulary.
 
 ## Facts and provenance
 
