@@ -71,7 +71,7 @@
     },
     {
       "id": "document.adr_coder_activation",
-      "artifact_type": "adr",
+      "artifact_type": "document",
       "title": "ADR: preserve Coder activation history",
       "description": "Activation and deactivation update state instead of deleting Tenant Coder values.",
       "path": "tenant/docs/adr/004-coder-activation.md",
@@ -80,7 +80,7 @@
     },
     {
       "id": "component.billing_invoice_export",
-      "artifact_type": "document",
+      "artifact_type": "component",
       "title": "Billing invoice export",
       "description": "Unrelated monthly invoice export component for false-positive measurement.",
       "path": "billing/src/invoice_export.py",

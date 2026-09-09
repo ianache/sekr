@@ -54,9 +54,12 @@ def test_oracle_ids_exist_in_fixture_and_critical_ids_are_expected():
 def test_fixture_contains_required_p1_runtime_artifact_types():
     fixture = json.loads(DATASET.read_text(encoding="utf-8"))
 
-    artifact_types = {artifact["artifact_type"] for artifact in fixture["artifacts"]}
+    artifacts = {artifact["id"]: artifact for artifact in fixture["artifacts"]}
+    artifact_types = {artifact["artifact_type"] for artifact in artifacts.values()}
 
     assert RUNTIME_ARTIFACT_TYPES <= artifact_types
+    assert artifacts["document.adr_coder_activation"]["artifact_type"] == "document"
+    assert artifacts["component.billing_invoice_export"]["artifact_type"] == "component"
 
 
 def test_verified_and_approved_fixture_artifacts_and_relations_have_evidence():
@@ -74,7 +77,7 @@ def test_ontology_declares_every_fixture_relationship_type():
 
     relation_types = {relation["relation_type"].upper() for relation in fixture["relations"]}
 
-    assert all(f"`{relation_type}`" in ontology for relation_type in relation_types)
+    assert all(f"| `{relation_type}` |" in ontology for relation_type in relation_types)
 
 
 def test_runner_executes_fixture_and_writes_experiment_outputs(tmp_path):

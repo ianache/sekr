@@ -124,7 +124,9 @@ def test_compile_constructs_sections_from_artifacts_and_facts(seeded_db):
         "table.tenant_coder_values",
     }
     assert package.tests == ("test.active_values_exclude_inactive",)
-    assert package.architectural_constraints == ("document.adr_coder_activation",)
+    # P1 maps ADR evidence to the document runtime type; the legacy compiler
+    # section only groups artifacts explicitly typed as adr.
+    assert package.architectural_constraints == ()
 
 
 def test_tokenize_task_normalizes_verbs_and_activation_state_terms():
