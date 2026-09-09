@@ -13,15 +13,20 @@ PASSWORD = "do-not-leak-this-password"
 
 
 class RecordingTransaction:
-    def __init__(self):
+    def __init__(self, fail_on=None):
         self.runs = []
         self.committed = False
         self.rolled_back = False
+        self.fail_on = fail_on
 
     def run(self, query, **parameters):
         self.runs.append((query, parameters))
+        if self.fail_on == "run":
+            raise RuntimeError(f"query failed with {PASSWORD}")
 
     def commit(self):
+        if self.fail_on == "commit":
+            raise RuntimeError(f"commit failed with {PASSWORD}")
         self.committed = True
 
     def rollback(self):
@@ -29,11 +34,14 @@ class RecordingTransaction:
 
 
 class RecordingSession:
-    def __init__(self):
-        self.transaction = RecordingTransaction()
+    def __init__(self, fail_on=None):
+        self.transaction = RecordingTransaction(fail_on)
         self.closed = False
+        self.fail_on = fail_on
 
     def begin_transaction(self):
+        if self.fail_on == "begin_transaction":
+            raise RuntimeError(f"authentication failed with {PASSWORD}")
         return self.transaction
 
     def close(self):
@@ -41,11 +49,14 @@ class RecordingSession:
 
 
 class RecordingDriver:
-    def __init__(self):
-        self.session_instance = RecordingSession()
+    def __init__(self, fail_on=None):
+        self.session_instance = RecordingSession(fail_on)
         self.closed = False
+        self.fail_on = fail_on
 
     def session(self):
+        if self.fail_on == "session":
+            raise RuntimeError(f"connection failed with {PASSWORD}")
         return self.session_instance
 
     def close(self):
@@ -116,3 +127,62 @@ def test_write_projection_maps_connection_failures_without_leaking_password(monk
 
     assert error.value.code == "NEO4J_CONNECTION_ERROR"
     assert PASSWORD not in str(error.value.details)
+
+
+@pytest.mark.parametrize("failure_point", ["session", "begin_transaction"])
+def test_write_projection_maps_session_connection_failures_without_password(
+    monkeypatch, failure_point
+):
+    """Catches lazy connection failures being misclassified as write errors."""
+    from sekr.neo4j import write_projection
+
+    driver = RecordingDriver(fail_on=failure_point)
+    monkeypatch.setitem(
+        sys.modules,
+        "neo4j",
+        SimpleNamespace(GraphDatabase=SimpleNamespace(driver=lambda uri, auth: driver)),
+    )
+
+    with pytest.raises(StructuredError) as error:
+        write_projection(
+            build_graph_projection(DATASET),
+            uri="bolt://example.test:7687",
+            user="neo4j",
+            password=PASSWORD,
+        )
+
+    assert error.value.code == "NEO4J_CONNECTION_ERROR"
+    assert PASSWORD not in str(error.value.details)
+    assert driver.closed
+    assert driver.session_instance.closed is (failure_point == "begin_transaction")
+    assert not driver.session_instance.transaction.rolled_back
+
+
+@pytest.mark.parametrize("failure_point", ["run", "commit"])
+def test_write_projection_maps_write_failures_rolls_back_and_hides_password(
+    monkeypatch, failure_point
+):
+    """Catches query or commit failures escaping the write error contract."""
+    from sekr.neo4j import write_projection
+
+    driver = RecordingDriver(fail_on=failure_point)
+    monkeypatch.setitem(
+        sys.modules,
+        "neo4j",
+        SimpleNamespace(GraphDatabase=SimpleNamespace(driver=lambda uri, auth: driver)),
+    )
+
+    with pytest.raises(StructuredError) as error:
+        write_projection(
+            build_graph_projection(DATASET),
+            uri="bolt://example.test:7687",
+            user="neo4j",
+            password=PASSWORD,
+        )
+
+    assert error.value.code == "NEO4J_WRITE_ERROR"
+    assert PASSWORD not in str(error.value.details)
+    assert driver.session_instance.transaction.rolled_back
+    assert not driver.session_instance.transaction.committed
+    assert driver.session_instance.closed
+    assert driver.closed

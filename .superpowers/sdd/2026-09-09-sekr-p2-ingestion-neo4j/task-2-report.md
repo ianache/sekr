@@ -28,3 +28,32 @@
 ## Concerns
 
 - Unit coverage uses a recording fake by design; it does not exercise a live Neo4j server. A live integration test remains deferred to Task 4 per the brief.
+
+## Round 1 correction
+
+### Changed files
+
+- `src/sekr/neo4j.py`: separated lazy `session()` and `begin_transaction()` failures into the connection-error boundary. Query and commit failures remain write errors and continue to roll back the active transaction. Cleanup and sanitized details are unchanged.
+- `tests/test_neo4j.py`: added focused fake-driver coverage for session and transaction connection failures, query and commit write failures, rollback, cleanup, and password omission from error details.
+
+### Tests and exact outputs
+
+```text
+$ pytest -q tests/test_neo4j.py
+......                                                                   [100%]
+6 passed in 0.10s
+```
+
+```text
+$ pytest -q
+........................................................................ [ 50%]
+.......................................................................  [100%]
+143 passed in 27.15s
+```
+
+### Self-review
+
+- `driver.session()` and `session.begin_transaction()` are the only operations mapped to `NEO4J_CONNECTION_ERROR` after driver construction; both are protected by the outer cleanup `finally` block.
+- Query execution and `commit()` are mapped to `NEO4J_WRITE_ERROR`; each failure attempts rollback before session and driver closure.
+- Error details still store only exception type names, so fake errors embedding the password prove credentials are absent on all tested error paths.
+- No optional dependency, public interface, CLI, projection, compiler, or SQLite code changed in this correction.

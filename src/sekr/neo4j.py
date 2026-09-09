@@ -63,39 +63,46 @@ def write_projection(
     session = None
     transaction = None
     try:
-        session = driver.session()
-        transaction = session.begin_transaction()
+        try:
+            session = driver.session()
+            transaction = session.begin_transaction()
+        except Exception as error:
+            raise _error(
+                "NEO4J_CONNECTION_ERROR", "Could not connect to Neo4j", error
+            ) from error
 
-        for node in (projection.dataset, *projection.nodes):
-            label = _LABELS[node.kind]
-            transaction.run(
-                f"MERGE (n:{label} {{id: $id}}) SET n += $properties",
-                id=node.key,
-                properties=dict(node.properties),
-            )
+        try:
+            for node in (projection.dataset, *projection.nodes):
+                label = _LABELS[node.kind]
+                transaction.run(
+                    f"MERGE (n:{label} {{id: $id}}) SET n += $properties",
+                    id=node.key,
+                    properties=dict(node.properties),
+                )
 
-        for relationship in projection.relationships:
-            source_label = _LABELS[relationship.source_kind]
-            target_label = _LABELS[relationship.target_kind]
-            transaction.run(
-                "MATCH (source:%s {id: $source_id}) "
-                "MATCH (target:%s {id: $target_id}) "
-                "MERGE (source)-[relationship:RELATES_TO {id: $id}]->(target) "
-                "SET relationship += $properties" % (source_label, target_label),
-                source_id=relationship.source_key,
-                target_id=relationship.target_key,
-                id=relationship.key,
-                properties=dict(relationship.properties),
-            )
+            for relationship in projection.relationships:
+                source_label = _LABELS[relationship.source_kind]
+                target_label = _LABELS[relationship.target_kind]
+                transaction.run(
+                    "MATCH (source:%s {id: $source_id}) "
+                    "MATCH (target:%s {id: $target_id}) "
+                    "MERGE (source)-[relationship:RELATES_TO {id: $id}]->(target) "
+                    "SET relationship += $properties" % (source_label, target_label),
+                    source_id=relationship.source_key,
+                    target_id=relationship.target_key,
+                    id=relationship.key,
+                    properties=dict(relationship.properties),
+                )
 
-        transaction.commit()
-    except Exception as error:
-        if transaction is not None:
+            transaction.commit()
+        except Exception as error:
             try:
                 transaction.rollback()
             except Exception:
                 pass
-        raise _error("NEO4J_WRITE_ERROR", "Could not write Neo4j projection", error) from error
+            raise _error(
+                "NEO4J_WRITE_ERROR", "Could not write Neo4j projection", error
+            ) from error
     finally:
         _close_quietly(session)
         _close_quietly(driver)
