@@ -8,7 +8,9 @@ from typing import Sequence
 
 from sekr.compiler import ContextCompiler, evaluate_case
 from sekr.db import KnowledgeRepository, load_dataset, validate_dataset
+from sekr.delta import build_delta
 from sekr.errors import StructuredError
+from sekr.git_delta import GitDeltaSource
 from sekr.ingest import build_graph_projection
 from sekr.neo4j import write_projection
 
@@ -72,6 +74,12 @@ def _build_parser() -> _Parser:
     mcp_commands = mcp.add_subparsers(dest="mcp_command", required=True)
     serve = mcp_commands.add_parser("serve")
     serve.add_argument("--db", required=True, metavar="PATH")
+
+    delta = commands.add_parser("delta")
+    delta.add_argument("--base", required=True, metavar="REF")
+    delta.add_argument("--head", required=True, metavar="REF")
+    delta.add_argument("--output", metavar="PATH")
+
     return parser
 
 
@@ -123,6 +131,11 @@ def _serve_mcp(db_path: str) -> None:
 
 
 def _dispatch(arguments: argparse.Namespace) -> dict[str, object]:
+    if arguments.command == "delta":
+        return build_delta(
+            GitDeltaSource(Path.cwd()), arguments.base, arguments.head
+        ).to_dict()
+
     if arguments.command == "dataset":
         if arguments.dataset_command == "load":
             load_dataset(arguments.db, arguments.source)
@@ -190,6 +203,14 @@ def _emit(payload: dict[str, object]) -> None:
     print(json.dumps(payload, sort_keys=True))
 
 
+def _write_delta_output(path: str, payload: dict[str, object]) -> None:
+    try:
+        Path(path).write_bytes((json.dumps(payload, sort_keys=True) + "\n").encode("utf-8"))
+    except OSError as error:
+        raise StructuredError("DELTA_OUTPUT_ERROR", "Knowledge delta could not be written") from error
+    print(f"Wrote knowledge delta to {path}", file=os.sys.stderr)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     try:
@@ -197,7 +218,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.command == "mcp":
             _serve_mcp(arguments.db)
             return 0
-        _emit(_dispatch(arguments))
+        payload = _dispatch(arguments)
+        if arguments.command == "delta" and arguments.output is not None:
+            _write_delta_output(arguments.output, payload)
+        else:
+            _emit(payload)
         return 0
     except StructuredError as error:
         _emit({"error": error.to_dict()})
