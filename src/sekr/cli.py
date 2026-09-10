@@ -2,12 +2,15 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Sequence
 
 from sekr.compiler import ContextCompiler, evaluate_case
 from sekr.db import KnowledgeRepository, load_dataset, validate_dataset
 from sekr.errors import StructuredError
+from sekr.ingest import build_graph_projection
+from sekr.neo4j import write_projection
 
 
 class _Parser(argparse.ArgumentParser):
@@ -55,6 +58,15 @@ def _build_parser() -> _Parser:
     evaluate.add_argument("--budget", default=6, type=_positive_integer, metavar="N")
     evaluate.add_argument("--data-dir", default="data", metavar="PATH")
     evaluate.add_argument("--oracle-path", metavar="PATH")
+
+    ingest = commands.add_parser("ingest")
+    ingest_commands = ingest.add_subparsers(dest="ingest_command", required=True)
+    neo4j = ingest_commands.add_parser("neo4j")
+    neo4j.add_argument("--source", required=True, metavar="PATH")
+    neo4j.add_argument("--uri", metavar="URI")
+    neo4j.add_argument("--user", metavar="USER")
+    neo4j.add_argument("--password", metavar="PASSWORD")
+    neo4j.add_argument("--dry-run", action="store_true")
     return parser
 
 
@@ -86,6 +98,10 @@ def _read_task(task: str | None, task_file: str | None) -> str:
         raise StructuredError("INVALID_TASK", "Task file could not be read", {"error": str(error)}) from error
 
 
+def _connection_value(value: str | None, environment_name: str) -> str | None:
+    return value or os.environ.get(environment_name)
+
+
 def _dispatch(arguments: argparse.Namespace) -> dict[str, object]:
     if arguments.command == "dataset":
         if arguments.dataset_command == "load":
@@ -101,6 +117,33 @@ def _dispatch(arguments: argparse.Namespace) -> dict[str, object]:
         if not payload["valid"]:
             raise StructuredError("DATASET_INVALID", "Dataset validation failed", payload)
         return payload
+
+    if arguments.command == "ingest":
+        projection = build_graph_projection(arguments.source)
+        if arguments.dry_run:
+            return {
+                "dry_run": True,
+                "dataset_version": projection.dataset.key,
+                "nodes": 1 + len(projection.nodes),
+                "relationships": len(projection.relationships),
+                "validated": True,
+            }
+
+        uri = _connection_value(arguments.uri, "SEKR_NEO4J_URI")
+        user = _connection_value(arguments.user, "SEKR_NEO4J_USER")
+        password = _connection_value(arguments.password, "SEKR_NEO4J_PASSWORD")
+        if not all((uri, user, password)):
+            raise StructuredError(
+                "INVALID_INPUT",
+                "Neo4j URI, user, and password are required for live ingestion",
+            )
+        summary = write_projection(projection, uri=uri, user=user, password=password)
+        return {
+            "dry_run": False,
+            "dataset_version": projection.dataset.key,
+            "nodes_written": summary.nodes_written,
+            "relationships_written": summary.relationships_written,
+        }
 
     if arguments.context_command == "compile":
         _require_valid_dataset(arguments.db)

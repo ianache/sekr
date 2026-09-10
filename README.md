@@ -1,13 +1,13 @@
 # SEKR Context Compiler
 
-SEKR is a local, deterministic proof of concept for compiling a bounded context package for the sole supported case: Tenant/Coder activation and deactivation. It reads a curated JSON dataset from SQLite and returns evidence-backed artifacts for a task. It uses no external services.
+SEKR is a local, deterministic proof of concept for compiling a bounded context package for the sole supported case: Tenant/Coder activation and deactivation. It reads a curated JSON dataset from SQLite and returns evidence-backed artifacts for a task. Its default compiler workflow uses no external services; Neo4j is an optional P2 projection target.
 
 ## Setup
 
-Requires Python 3.11 or later. Create an environment, install the project with its test dependency, and load the curated fixture:
+Requires Python 3.11 or later. Create an environment, install the project with its test and optional Neo4j dependencies, and load the curated fixture:
 
 ```powershell
-python -m pip install -e ".[test]"
+python -m pip install -e ".[test,neo4j]"
 New-Item -ItemType Directory -Force .sekr
 sekr dataset load --db .sekr/knowledge.sqlite --source data/coder_activation.json
 ```
@@ -90,6 +90,27 @@ Run the tests:
 pytest -q
 ```
 
+## Neo4j projection
+
+P2 projects the validated JSON fixture into Neo4j; it does not replace the SQLite compiler. Preview the projection without connecting to Neo4j:
+
+```powershell
+python -m sekr.cli ingest neo4j --source data/coder_activation.json --dry-run
+```
+
+For a live ingestion, provide the Neo4j connection through environment variables:
+
+```powershell
+$env:SEKR_NEO4J_URI = "bolt://localhost:7687"
+$env:SEKR_NEO4J_USER = "neo4j"
+$env:SEKR_NEO4J_PASSWORD = "your-password"
+python -m sekr.cli ingest neo4j --source data/coder_activation.json
+```
+
+The graph uses `Dataset`, `Artifact`, `Fact`, and `TaskProfile` labels. Every relationship has the fixed type `RELATES_TO` and stores its semantic value in the `relation_type` property. Stable IDs and parameterized `MERGE` statements make repeated ingestion idempotent for the same projection.
+
+The live Neo4j test runs twice against the configured endpoint and compares both summaries. It is skipped when `SEKR_NEO4J_URI`, `SEKR_NEO4J_USER`, or `SEKR_NEO4J_PASSWORD` is absent, so credentials and an external service are not required in CI.
+
 ## Scope boundaries
 
-This PoC is local and deterministic. It supports only Tenant/Coder activation and deactivation. External services, additional domains, automatic oracle generation, live source ingestion, and deferred retrieval features remain deferred.
+This PoC is local and deterministic. It supports only Tenant/Coder activation and deactivation. External source services, additional domains, automatic oracle generation, live source ingestion, and deferred retrieval features remain deferred.
