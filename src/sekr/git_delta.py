@@ -49,7 +49,7 @@ class GitDeltaSource:
             raise self._tree_error()
 
         changes = {"added": [], "modified": [], "deleted": []}
-        statuses = {"A": "added", "M": "modified", "D": "deleted"}
+        statuses = {"A": "added", "M": "modified", "T": "modified", "D": "deleted"}
         for status_raw, path_raw in zip(fields[::2], fields[1::2], strict=True):
             status = self._decode(status_raw, "DELTA_TREE_ERROR", "Git status was malformed")
             category = statuses.get(status)
