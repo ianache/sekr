@@ -43,6 +43,21 @@ def runner():
     return run
 
 
+@pytest.fixture
+def binary_runner():
+    def run(*args):
+        environment = dict(os.environ)
+        environment["PYTHONPATH"] = str(Path("src").resolve())
+        return subprocess.run(
+            [sys.executable, "-m", "sekr.cli", *args],
+            capture_output=True,
+            check=False,
+            env=environment,
+        )
+
+    return run
+
+
 def run_with_patched_neo4j_adapter(*args, env):
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(Path("src").resolve())
@@ -341,3 +356,70 @@ def test_ingest_neo4j_never_emits_live_password_with_adapter_subprocess():
     assert result.returncode == 0
     assert password not in result.stdout
     assert password not in result.stderr
+
+
+def test_delta_emits_canonical_json_bytes_to_stdout(binary_runner):
+    result = binary_runner("delta", "--base", "HEAD~1", "--head", "HEAD")
+
+    assert result.returncode == 0
+    assert result.stderr == b""
+    payload = json.loads(result.stdout)
+    assert set(payload) == {"base", "head", "files", "symbols", "impact", "commits"}
+    assert payload["base"] == "HEAD~1"
+    assert payload["head"] == "HEAD"
+    assert result.stdout == (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
+
+
+def test_delta_output_file_matches_stdout_byte_for_byte(tmp_path, binary_runner):
+    stdout_result = binary_runner("delta", "--base", "HEAD~1", "--head", "HEAD")
+    output_path = tmp_path / "knowledge-delta.json"
+    output_result = binary_runner(
+        "delta", "--base", "HEAD~1", "--head", "HEAD", "--output", str(output_path)
+    )
+
+    assert stdout_result.returncode == 0
+    assert output_result.returncode == 0
+    assert output_path.read_bytes() == stdout_result.stdout
+
+
+def test_delta_output_mode_emits_only_success_summary_to_stderr(tmp_path, runner):
+    output_path = tmp_path / "knowledge-delta.json"
+
+    result = runner(
+        "delta", "--base", "HEAD~1", "--head", "HEAD", "--output", str(output_path)
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == f"Wrote knowledge delta to {output_path}\n"
+
+
+def test_delta_invalid_ref_returns_structured_json_without_traceback(runner):
+    result = runner("delta", "--base", "not-a-ref", "--head", "HEAD")
+
+    assert result.returncode == 1
+    assert result.stderr == ""
+    assert json.loads(result.stdout)["error"]["code"] == "DELTA_INVALID_REF"
+
+
+def test_delta_unwritable_output_returns_structured_json(tmp_path, runner):
+    output_directory = tmp_path / "output-directory"
+    output_directory.mkdir()
+
+    result = runner(
+        "delta", "--base", "HEAD~1", "--head", "HEAD", "--output", str(output_directory)
+    )
+
+    assert result.returncode == 1
+    assert result.stderr == ""
+    assert json.loads(result.stdout)["error"]["code"] == "DELTA_OUTPUT_ERROR"
+
+
+def test_delta_command_preserves_context_compile(seeded_db, runner):
+    result = runner(
+        "context", "compile", "--db", str(seeded_db), "--task", "activate coder values", "--budget", "5"
+    )
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert json.loads(result.stdout)["task"] == "activate coder values"
