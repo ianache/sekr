@@ -43,6 +43,21 @@ def runner():
     return run
 
 
+@pytest.fixture
+def binary_runner():
+    def run(*args):
+        environment = dict(os.environ)
+        environment["PYTHONPATH"] = str(Path("src").resolve())
+        return subprocess.run(
+            [sys.executable, "-m", "sekr.cli", *args],
+            capture_output=True,
+            check=False,
+            env=environment,
+        )
+
+    return run
+
+
 def run_with_patched_neo4j_adapter(*args, env):
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(Path("src").resolve())
@@ -343,28 +358,28 @@ def test_ingest_neo4j_never_emits_live_password_with_adapter_subprocess():
     assert password not in result.stderr
 
 
-def test_delta_emits_canonical_json_to_stdout(runner):
-    result = runner("delta", "--base", "HEAD~1", "--head", "HEAD")
+def test_delta_emits_canonical_json_bytes_to_stdout(binary_runner):
+    result = binary_runner("delta", "--base", "HEAD~1", "--head", "HEAD")
 
     assert result.returncode == 0
-    assert result.stderr == ""
+    assert result.stderr == b""
     payload = json.loads(result.stdout)
     assert set(payload) == {"base", "head", "files", "symbols", "impact", "commits"}
     assert payload["base"] == "HEAD~1"
     assert payload["head"] == "HEAD"
-    assert result.stdout == json.dumps(payload, sort_keys=True) + "\n"
+    assert result.stdout == (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
 
 
-def test_delta_output_file_contains_exact_canonical_json_bytes(tmp_path, runner):
-    stdout_result = runner("delta", "--base", "HEAD~1", "--head", "HEAD")
+def test_delta_output_file_matches_stdout_byte_for_byte(tmp_path, binary_runner):
+    stdout_result = binary_runner("delta", "--base", "HEAD~1", "--head", "HEAD")
     output_path = tmp_path / "knowledge-delta.json"
-    output_result = runner(
+    output_result = binary_runner(
         "delta", "--base", "HEAD~1", "--head", "HEAD", "--output", str(output_path)
     )
 
     assert stdout_result.returncode == 0
     assert output_result.returncode == 0
-    assert output_path.read_bytes() == stdout_result.stdout.encode("utf-8")
+    assert output_path.read_bytes() == stdout_result.stdout
 
 
 def test_delta_output_mode_emits_only_success_summary_to_stderr(tmp_path, runner):

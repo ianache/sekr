@@ -199,13 +199,17 @@ def _dispatch(arguments: argparse.Namespace) -> dict[str, object]:
     )
 
 
+def _serialize(payload: dict[str, object]) -> bytes:
+    return (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
+
+
 def _emit(payload: dict[str, object]) -> None:
-    print(json.dumps(payload, sort_keys=True))
+    os.sys.stdout.buffer.write(_serialize(payload))
 
 
 def _write_delta_output(path: str, payload: dict[str, object]) -> None:
     try:
-        Path(path).write_bytes((json.dumps(payload, sort_keys=True) + "\n").encode("utf-8"))
+        Path(path).write_bytes(_serialize(payload))
     except OSError as error:
         raise StructuredError("DELTA_OUTPUT_ERROR", "Knowledge delta could not be written") from error
     print(f"Wrote knowledge delta to {path}", file=os.sys.stderr)
