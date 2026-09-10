@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import subprocess
@@ -7,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from sekr.delta import build_delta
+from sekr.delta import Symbol, _ImpactVisitor, build_delta
 from sekr.errors import StructuredError
 from sekr.git_delta import GitDeltaSource
 
@@ -371,3 +372,168 @@ def test_delta_cli_invalid_ref_is_structured_without_traceback_or_repo_path(
     assert b"Traceback" not in result.stdout
     assert b"Traceback" not in result.stderr
     assert str(repo).encode("utf-8") not in result.stdout
+
+
+@pytest.fixture
+def impact_history(tmp_path):
+    def create(files, changed_path="pkg/service.py"):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _git(repo, "init")
+        _git(repo, "config", "user.name", "Delta Tester")
+        _git(repo, "config", "user.email", "delta@example.test")
+        for path, content in files.items():
+            _write(repo, path, content)
+        _write(repo, changed_path, "def refresh():\n    return 1\n")
+        base = _commit(repo, "base")
+        _write(repo, changed_path, "def refresh():\n    return 2\n")
+        head = _commit(repo, "head")
+        return repo, base, head
+
+    return create
+
+
+def test_delta_resolves_src_layout_absolute_and_relative_imports(impact_history):
+    repo, base, head = impact_history({
+        "src/sekr/__init__.py": "from .delta import refresh\n",
+        "src/sekr/consumer.py": "from sekr.delta import refresh\n"
+        "def use():\n    return refresh()\n",
+    }, changed_path="src/sekr/delta.py")
+
+    assert build_delta(GitDeltaSource(repo), base, head).to_dict()["impact"] == [
+        {"source": "sekr", "target": "src/sekr/delta.py:refresh",
+         "relation": "imports", "path": "src/sekr/__init__.py"},
+        {"source": "sekr.consumer", "target": "src/sekr/delta.py:refresh",
+         "relation": "imports", "path": "src/sekr/consumer.py"},
+        {"source": "use", "target": "src/sekr/delta.py:refresh",
+         "relation": "calls", "path": "src/sekr/consumer.py"},
+    ]
+
+
+def test_delta_resolves_unaliased_dotted_import_without_duplicate_module(impact_history):
+    repo, base, head = impact_history({
+        "consumer.py": "import pkg.service\nimport pkg.service as service\n"
+        "def dotted():\n    return pkg.service.refresh()\n"
+        "def aliased():\n    return service.refresh()\n"
+        "def wrong():\n    return pkg.refresh()\n",
+    })
+
+    assert build_delta(GitDeltaSource(repo), base, head).to_dict()["impact"] == [
+        {"source": "aliased", "target": "pkg/service.py:refresh",
+         "relation": "calls", "path": "consumer.py"},
+        {"source": "dotted", "target": "pkg/service.py:refresh",
+         "relation": "calls", "path": "consumer.py"},
+    ]
+
+
+@pytest.mark.parametrize("consumer, expected_calls", [
+    ("def first():\n    from pkg.service import refresh\n    refresh()\n"
+     "def sibling():\n    refresh()\n", ["first"]),
+    ("from pkg.service import refresh\n"
+     "def first():\n    from other import refresh\n    refresh()\n"
+     "def sibling():\n    refresh()\n", ["sibling"]),
+    ("from pkg.service import refresh\n"
+     "def outer():\n"
+     "    def inner():\n        from other import refresh\n        refresh()\n"
+     "    refresh()\n", ["outer"]),
+    ("from pkg.service import refresh\n"
+     "def shadow(refresh, /):\n    refresh()\n"
+     "async def keyword(*, refresh):\n    refresh()\n"
+     "def variadic(*refresh):\n    refresh()\n"
+     "def keywords(**refresh):\n    refresh()\n"
+     "def sibling():\n    refresh()\n", ["sibling"]),
+    ("from pkg.service import refresh\n"
+     "def local():\n    refresh()\n    refresh = replacement\n"
+     "def sibling():\n    refresh()\n", ["sibling"]),
+    ("from pkg.service import refresh\n"
+     "def local():\n    def refresh():\n        pass\n    refresh()\n"
+     "def sibling():\n    refresh()\n", ["sibling"]),
+    ("from pkg.service import refresh\n"
+     "class Consumer:\n    from other import refresh\n"
+     "    def method(self):\n        refresh()\n"
+     "def sibling():\n    refresh()\n", ["Consumer.method", "sibling"]),
+    ("from pkg.service import refresh\n"
+     "def outer(refresh):\n    def inner():\n        refresh()\n"
+     "def sibling():\n    refresh()\n", ["sibling"]),
+    ("from pkg.service import refresh\n"
+     "def use():\n    (lambda refresh: refresh())(replacement)\n"
+     "    [refresh() for refresh in replacements]\n    refresh()\n", ["use"]),
+    ("from pkg.service import refresh\n"
+     "def shadow():\n    (lambda refresh: refresh())(replacement)\n"
+     "    [refresh() for refresh in replacements]\n", []),
+])
+def test_delta_uses_lexical_bindings_without_scope_leaks(
+    impact_history, consumer, expected_calls,
+):
+    repo, base, head = impact_history({"consumer.py": consumer})
+
+    impact = build_delta(GitDeltaSource(repo), base, head).to_dict()["impact"]
+
+    assert [edge for edge in impact if edge["relation"] == "calls"] == [
+        {"source": caller, "target": "pkg/service.py:refresh",
+         "relation": "calls", "path": "consumer.py"}
+        for caller in expected_calls
+    ]
+
+
+def test_delta_cli_from_subdirectory_matches_root_bytes(delta_history):
+    repo, base, head = delta_history
+    # Even a repository configured for relative diffs must report root paths.
+    _git(repo, "config", "diff.relative", "true")
+    source = GitDeltaSource(repo / "pkg")
+    assert source.read_tree(head, "consumer.py").startswith(b"from pkg.service")
+    assert source.changed_files(base, head) == {
+        "added": ["a_added.txt", "consumer.py"],
+        "modified": ["pkg/service.py"],
+        "deleted": ["z_deleted.py"],
+    }
+    root = _run_delta_cli(repo, "--base", base, "--head", head)
+    nested = _run_delta_cli(repo / "pkg", "--base", base, "--head", head)
+
+    assert root.returncode == nested.returncode == 0
+    assert root.stderr == nested.stderr == b""
+    assert root.stdout == nested.stdout
+    assert json.loads(nested.stdout)["impact"]
+
+
+@pytest.mark.parametrize("code, callers", [
+    ("def use():\n    refresh()\ndef refresh():\n    pass\n", ["use"]),
+    ("from target import refresh\nrefresh = refresh()\nrefresh()\n", ["consumer"]),
+    ("from target import refresh\ndef outer(refresh):\n"
+     "    def inner():\n        global refresh\n        refresh()\n",
+     ["outer.inner"]),
+    ("from target import refresh\ndef outer():\n"
+     "    from target import refresh\n"
+     "    def inner():\n        nonlocal refresh\n        refresh()\n"
+     "        refresh = replacement\n"
+     "    refresh()\n", ["outer", "outer.inner"]),
+    ("from target import refresh\ndef use(value):\n"
+     "    match value:\n        case {'callback': refresh}:\n            refresh()\n", []),
+    ("from src import refresh\ndef use():\n    refresh()\n", ["use"]),
+])
+def test_impact_binding_resolution_preserves_lexical_calls(code, callers):
+    # Direct AST coverage isolates binding semantics from the Git integration.
+    targets = [Symbol("target.py", "refresh", "function", "()"),
+               Symbol("src.py", "refresh", "function", "()"),
+               Symbol("consumer.py", "refresh", "function", "()")]
+    visitor = _ImpactVisitor("consumer.py", targets)
+    visitor.visit(ast.parse(code))
+
+    assert sorted(edge.source for edge in visitor.edges if edge.relation == "calls") == callers
+
+
+def test_impact_resolves_a_closure_call_to_a_later_local_definition():
+    visitor = _ImpactVisitor(
+        "consumer.py", [Symbol("consumer.py", "outer.refresh", "function", "()")]
+    )
+    visitor.visit(ast.parse(
+        "def outer():\n"
+        "    def use():\n        refresh()\n"
+        "    def refresh():\n        pass\n"
+        "    return use\n"
+    ))
+
+    assert [edge.to_dict() for edge in sorted(visitor.edges)] == [
+        {"source": "outer.use", "target": "consumer.py:outer.refresh",
+         "relation": "calls", "path": "consumer.py"},
+    ]

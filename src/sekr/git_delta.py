@@ -34,6 +34,7 @@ class GitDeltaSource:
                 "--name-status",
                 "-z",
                 "--no-renames",
+                "--no-relative",
                 base_id,
                 head_id,
                 "--",

@@ -146,12 +146,75 @@ class _SymbolVisitor(ast.NodeVisitor):
         self.names.pop()
 
 
+class _LocalBindings(ast.NodeVisitor):
+    """Collect lexical locals without descending into child scopes."""
+
+    def __init__(self) -> None:
+        self.names: set[str] = set()
+        self.definitions: set[str] = set()
+        self.globals: set[str] = set()
+        self.nonlocals: set[str] = set()
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, (ast.Store, ast.Del)):
+            self.names.add(node.id)
+
+    def visit_arg(self, node: ast.arg) -> None:
+        self.names.add(node.arg)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self.names.add(node.name)
+        self.definitions.add(node.name)
+
+    visit_AsyncFunctionDef = visit_FunctionDef
+    visit_ClassDef = visit_FunctionDef
+
+    def visit_Import(self, node: ast.Import) -> None:
+        self.names.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        self.names.update(alias.asname or alias.name for alias in node.names)
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        if node.name:
+            self.names.add(node.name)
+        self.generic_visit(node)
+
+    def visit_Global(self, node: ast.Global) -> None:
+        self.globals.update(node.names)
+
+    def visit_Nonlocal(self, node: ast.Nonlocal) -> None:
+        self.nonlocals.update(node.names)
+
+    def visit_MatchAs(self, node: ast.MatchAs | ast.MatchStar) -> None:
+        if node.name:
+            self.names.add(node.name)
+        self.generic_visit(node)
+
+    visit_MatchStar = visit_MatchAs
+
+    def visit_MatchMapping(self, node: ast.MatchMapping) -> None:
+        if node.rest:
+            self.names.add(node.rest)
+        self.generic_visit(node)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        pass
+
+    # Comprehension targets belong to their own implicit function scope.
+    visit_ListComp = visit_Lambda
+    visit_SetComp = visit_Lambda
+    visit_DictComp = visit_Lambda
+    visit_GeneratorExp = visit_Lambda
+
+
 class _ImpactVisitor(ast.NodeVisitor):
     def __init__(self, path: str, targets: Sequence[Symbol]) -> None:
         self.path = path
         self.module = _module_name(path)
         self.names: list[str] = []
-        self.aliases: dict[str, str] = {}
+        # None marks a binding whose value is unknown, blocking outer aliases.
+        self.scopes: list[tuple[str, dict[str, str | None]]] = [("module", {})]
         self.targets: dict[str, list[str]] = {}
         for target in targets:
             qualified_target = f"{_module_name(target.path)}.{target.qualified_name}"
@@ -175,7 +238,7 @@ class _ImpactVisitor(ast.NodeVisitor):
             imported_name = ".".join(
                 part for part in (imported_module, alias.name) if part
             )
-            self.aliases[local_name] = imported_name
+            self.scopes[-1][1][local_name] = imported_name
             target = self._resolve_target(imported_name)
             if target is not None:
                 self._add(target, "imports")
@@ -183,7 +246,16 @@ class _ImpactVisitor(ast.NodeVisitor):
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
             local_name = alias.asname or alias.name.split(".", 1)[0]
-            self.aliases[local_name] = alias.name
+            self.scopes[-1][1][local_name] = alias.name if alias.asname else local_name
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if isinstance(node.ctx, (ast.Store, ast.Del)):
+            self.scopes[-1][1][node.id] = None
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        self.visit(node.value)
+        for target in node.targets:
+            self.visit(target)
 
     def visit_Call(self, node: ast.Call) -> None:
         name = _call_name(node.func)
@@ -196,9 +268,94 @@ class _ImpactVisitor(ast.NodeVisitor):
     def _visit_scope(
         self, node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
     ) -> None:
+        # Defaults, decorators and bases are evaluated in the enclosing scope.
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        is_class = isinstance(node, ast.ClassDef)
+        if is_class:
+            for value in [*node.bases, *node.keywords]:
+                self.visit(value)
+        else:
+            self.visit(node.args)
+            if node.returns is not None:
+                self.visit(node.returns)
+
+        self.scopes[-1][1][node.name] = ".".join((self.module, *self.names, node.name))
+        enclosing = self.scopes
+        bindings: dict[str, str | None] = {}
+        if not is_class:
+            locals_ = _LocalBindings()
+            locals_.visit(node.args)
+            for statement in node.body:
+                locals_.visit(statement)
+            bindings = dict.fromkeys(locals_.names)
+            for name in locals_.definitions:
+                bindings[name] = ".".join((self.module, *self.names, node.name, name))
+            # Analyze rebinding within this body without executing its effects
+            # in enclosing scopes when the visitor returns to a sibling.
+            for name in locals_.globals:
+                bindings[name] = enclosing[0][1].get(name)
+            for name in locals_.nonlocals:
+                bindings[name] = next(
+                    (scope[name] for kind, scope in reversed(enclosing)
+                     if kind == "function" and name in scope),
+                    None,
+                )
+            if enclosing[-1][0] == "class":
+                for receiver in ("self", "cls"):
+                    if receiver in bindings:
+                        bindings[receiver] = ".".join((self.module, *self.names))
+        # Class namespaces are not enclosing lexical scopes for child bodies.
+        self.scopes = [scope for scope in enclosing if scope[0] != "class"]
+        self.scopes.append(("class" if is_class else "function", bindings))
         self.names.append(node.name)
-        self.generic_visit(node)
-        self.names.pop()
+        try:
+            for statement in node.body:
+                self.visit(statement)
+        finally:
+            self.names.pop()
+            self.scopes = enclosing
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self.visit(node.args)
+        locals_ = _LocalBindings()
+        locals_.visit(node.args)
+        locals_.visit(node.body)
+        enclosing = self.scopes
+        self.scopes = [scope for scope in enclosing if scope[0] != "class"]
+        self.scopes.append(("function", dict.fromkeys(locals_.names)))
+        try:
+            self.visit(node.body)
+        finally:
+            self.scopes = enclosing
+
+    def visit_ListComp(
+        self, node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp
+    ) -> None:
+        self.visit(node.generators[0].iter)
+        enclosing = self.scopes
+        locals_ = _LocalBindings()
+        for generator in node.generators:
+            locals_.visit(generator.target)
+        self.scopes = [scope for scope in enclosing if scope[0] != "class"]
+        self.scopes.append(("function", dict.fromkeys(locals_.names)))
+        try:
+            for index, generator in enumerate(node.generators):
+                if index:
+                    self.visit(generator.iter)
+                for condition in generator.ifs:
+                    self.visit(condition)
+            if isinstance(node, ast.DictComp):
+                self.visit(node.key)
+                self.visit(node.value)
+            else:
+                self.visit(node.elt)
+        finally:
+            self.scopes = enclosing
+
+    visit_SetComp = visit_ListComp
+    visit_DictComp = visit_ListComp
+    visit_GeneratorExp = visit_ListComp
 
     def _resolve_target(self, candidate: str) -> str | None:
         matches = self.targets.get(candidate, ())
@@ -206,23 +363,15 @@ class _ImpactVisitor(ast.NodeVisitor):
 
     def _resolve_call_target(self, name: str) -> str | None:
         first, separator, remainder = name.partition(".")
-        imported = self.aliases.get(first)
-        if imported is not None:
-            candidate = f"{imported}.{remainder}" if separator else imported
-            return self._resolve_target(candidate)
-
-        if first in {"self", "cls"} and self.names:
-            candidate_parts = [self.module, *self.names[:-1]]
-            if separator:
-                candidate_parts.append(remainder)
-            return self._resolve_target(".".join(candidate_parts))
-
-        for depth in range(len(self.names), -1, -1):
-            candidate = ".".join((self.module, *self.names[:depth], name))
-            target = self._resolve_target(candidate)
-            if target is not None:
-                return target
-        return None
+        for _, bindings in reversed(self.scopes):
+            if first in bindings:
+                bound = bindings[first]
+                if bound is None:
+                    return None
+                candidate = f"{bound}.{remainder}" if separator else bound
+                return self._resolve_target(candidate)
+        # Module functions may refer to definitions later in the same file.
+        return self._resolve_target(f"{self.module}.{name}")
 
     def _add(self, target: str, relation: str) -> None:
         self.edges.add(
@@ -322,7 +471,7 @@ def _parse_python(content: bytes, path: str) -> ast.Module:
 def _head_python_paths(source: GitDeltaSource, head: str) -> tuple[str, ...]:
     object_id = source._resolve_ref(head)
     output = source._run(
-        ["git", "ls-tree", "-r", "-z", "--name-only", object_id, "--"],
+        ["git", "ls-tree", "--full-tree", "-r", "-z", "--name-only", object_id, "--"],
         "DELTA_TREE_ERROR",
         "Git tree could not be read",
     )
@@ -369,6 +518,9 @@ def _call_name(node: ast.expr) -> str | None:
 
 def _module_name(path: str) -> str:
     parts = list(PurePosixPath(path).with_suffix("").parts)
+    # The conventional src layout puts importable modules below the source root.
+    if len(parts) > 1 and parts[0] == "src":
+        parts.pop(0)
     if parts[-1:] == ["__init__"]:
         parts.pop()
     return ".".join(parts)
