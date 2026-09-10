@@ -13,9 +13,9 @@ dependencies = []
 sekr = "sekr.cli:main"
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.30,<2"]
+mcp = ["mcp>=1,<2"]
 neo4j = ["neo4j>=5,<7"]
-test = ["pytest", "mcp>=1.30,<2"]
+test = ["pytest"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

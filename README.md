@@ -104,7 +104,40 @@ Start the stdio server against a validated local database:
 sekr mcp serve --db .sekr/knowledge.sqlite
 ```
 
-The server exposes one tool, `compile_context`, with `task` and `budget` arguments. A successful call returns the same JSON object as `ContextCompiler.compile(...).to_dict()` and is deterministic for the same database and arguments. Invalid task or budget inputs return an MCP tool error whose JSON text is `{"error": {"code": "...", ...}}`.
+The server exposes one tool, `compile_context`, with this input schema:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "task": {"type": "string", "minLength": 1},
+    "budget": {"type": "integer", "minimum": 0},
+    "db": {"type": "string", "minLength": 1}
+  },
+  "required": ["task", "budget", "db"],
+  "additionalProperties": false
+}
+```
+
+This executable Python example starts the server and calls the tool through the dependency-light harness:
+
+```python
+import json
+
+from sekr.mcp_harness import MCPHarness
+
+db = ".sekr/knowledge.sqlite"
+with MCPHarness(db) as client:
+    client.initialize()
+    result = client.call_tool(
+        "compile_context",
+        {"task": "activate coder values", "budget": 6, "db": db},
+    )
+
+print(json.dumps(result, indent=2, sort_keys=True))
+```
+
+The `db` tool argument is required and validated, but it cannot redirect the server to another database. Compilation always uses the database configured when the server starts with `sekr mcp serve --db ...` (or when `MCPHarness(db)` starts it); clients should pass that configured path as `db`. A successful call returns the same JSON object as `ContextCompiler.compile(...).to_dict()` and is deterministic for the same configured database and arguments. Invalid task, budget, or database inputs return an MCP tool error whose JSON text is `{"error": {"code": "...", ...}}`.
 
 MCP traffic uses stdout exclusively: do not print banners, logs, or diagnostics there, because stdout is the JSON-RPC transport. The server emits no application diagnostics to stderr during normal operation. The CLI's pre-server failures (for example, a missing MCP installation) remain structured JSON on stdout with a non-zero exit code.
 
