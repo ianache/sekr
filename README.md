@@ -48,6 +48,69 @@ Evaluate the compiler against the deterministic normalized-token-overlap text ba
 python -B -m sekr.cli context evaluate --case coder-activation --budget 6
 ```
 
+### Knowledge delta
+
+Compare two commits in the current Git repository with:
+
+```powershell
+sekr delta --base REF --head REF [--output PATH]
+```
+
+`REF` values use normal Git commit-ref semantics (for example, `HEAD~1`,
+`HEAD`, a branch name, or a commit ID). Both refs must resolve to commits in
+the current repository. The comparison reports changes reachable from `head`
+that are not reachable from `base`; it does not change the working tree or
+any SEKR database. From a checkout without installing the console script, use
+the equivalent module command:
+
+```powershell
+python -m sekr.cli delta --base HEAD~1 --head HEAD
+```
+
+Without `--output`, the command writes one canonical JSON document to stdout,
+which is suitable for a pipeline:
+
+```powershell
+sekr delta --base HEAD~1 --head HEAD
+```
+
+```json
+{
+  "base": "HEAD~1",
+  "head": "HEAD",
+  "files": {"added": [], "modified": ["src/sekr/example.py"], "deleted": []},
+  "symbols": {"added": [], "modified": [], "deleted": []},
+  "impact": [],
+  "commits": []
+}
+```
+
+The top-level fields are `base`, `head`, `files`, `symbols`, `impact`, and
+`commits`. `files` groups repository-relative POSIX paths by added, modified,
+and deleted status. `symbols` uses the same groups; each Python symbol has
+`path`, `qualified_name`, `kind`, and `signature`. `impact` records `source`,
+`target`, `relation` (`imports` or `calls`), and `path`. `commits` contains
+the `id`, `author`, `subject`, and `timestamp` for commits in the range. All
+arrays are deterministically sorted.
+
+To write the exact same UTF-8 JSON bytes to a file, provide `--output`. In
+this mode stdout remains empty and stderr only confirms the destination:
+
+```powershell
+sekr delta --base HEAD~1 --head HEAD --output .sekr/knowledge-delta.json
+# stderr: Wrote knowledge delta to .sekr/knowledge-delta.json
+```
+
+Invalid refs and other delta failures produce structured JSON on stdout with
+a stable error code such as `DELTA_INVALID_REF`, rather than a traceback. The
+error response does not include full local repository paths.
+
+The command reads Git objects with argument-array subprocess calls and never
+executes code from either ref. It reports file changes for all paths, but
+symbol extraction and import/call impact analysis apply only to parseable
+Python files. It does not infer natural-language semantics, update SQLite or
+Neo4j, or expose the delta through MCP.
+
 Evaluation output reports precision at K, critical recall, context size, false-positive rate and IDs, plus reproducibility. It never emits the oracle itself.
 
 The candidate universe is **all artifacts in the validated dataset**, including artifacts retrieval does not return. Oracle expected IDs define the positives; all remaining dataset IDs are negatives. `falsePositiveRate = FP / (FP + TN)`, with 0.0 defined when there are no negative candidates. `candidateCount` reports the universe size; `trueNegativeCount` reports negatives not selected. Oracle IDs must belong to the dataset, and critical IDs must be expected IDs. Precision is selected positives / selected items; critical recall is selected critical IDs / all critical IDs; either is 0.0 for an empty denominator.

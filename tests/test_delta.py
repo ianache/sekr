@@ -1,4 +1,7 @@
+import json
+import os
 import subprocess
+import sys
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -26,6 +29,18 @@ def _commit(repo: Path, subject: str) -> str:
     _git(repo, "add", "-A")
     _git(repo, "commit", "-m", subject)
     return _git(repo, "rev-parse", "HEAD")
+
+
+def _run_delta_cli(repo: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(Path("src").resolve())
+    return subprocess.run(
+        [sys.executable, "-m", "sekr.cli", "delta", *args],
+        cwd=repo,
+        check=False,
+        capture_output=True,
+        env=environment,
+    )
 
 
 @pytest.fixture
@@ -312,3 +327,47 @@ def test_delta_maps_malformed_python_to_safe_stable_error(tmp_path: Path):
     assert error.message == "Python source could not be parsed: module.py"
     assert "private-root" not in str(error.to_dict())
     assert "secret-value" not in str(error.to_dict())
+
+
+def test_delta_cli_matches_direct_build_for_a_two_commit_repository(delta_history):
+    repo, base, head = delta_history
+
+    result = _run_delta_cli(repo, "--base", base, "--head", head)
+
+    assert result.returncode == 0
+    assert result.stderr == b""
+    assert json.loads(result.stdout) == build_delta(
+        GitDeltaSource(repo), base, head
+    ).to_dict()
+
+
+def test_delta_cli_repeats_identical_comparisons_byte_for_byte(delta_history):
+    repo, base, head = delta_history
+
+    first = _run_delta_cli(repo, "--base", base, "--head", head)
+    second = _run_delta_cli(repo, "--base", base, "--head", head)
+
+    assert first.returncode == second.returncode == 0
+    assert first.stderr == second.stderr == b""
+    assert first.stdout == second.stdout
+
+
+def test_delta_cli_invalid_ref_is_structured_without_traceback_or_repo_path(
+    delta_history,
+):
+    repo, _, head = delta_history
+
+    result = _run_delta_cli(repo, "--base", "does-not-exist", "--head", head)
+
+    assert result.returncode == 1
+    assert result.stderr == b""
+    assert json.loads(result.stdout) == {
+        "error": {
+            "code": "DELTA_INVALID_REF",
+            "message": "Git ref is invalid",
+            "details": {},
+        }
+    }
+    assert b"Traceback" not in result.stdout
+    assert b"Traceback" not in result.stderr
+    assert str(repo).encode("utf-8") not in result.stdout
