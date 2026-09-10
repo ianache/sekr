@@ -35,18 +35,51 @@ def _tool_result(payload: dict[str, Any], *, is_error: bool):
 def create_server(db_path: str | Path):
     """Create the SEKR FastMCP server without writing diagnostics to stdout."""
     from mcp.server.fastmcp import FastMCP
+    from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase
+    from pydantic import ConfigDict
+
+    class _RuntimeArguments(ArgModelBase):
+        """Preserve raw inputs so the tool can enforce its public contract."""
+
+        model_config = ConfigDict(extra="allow")
+        task: object = None
+        budget: object = None
+        db: object = None
+
+        def model_dump_one_level(self) -> dict[str, object]:
+            return {**super().model_dump_one_level(), **(self.__pydantic_extra__ or {})}
 
     server = FastMCP("sekr")
+    configured_db_path = str(db_path)
 
     @server.tool(
         name="compile_context",
         description="Compile evidence-backed context for a bounded task",
     )
-    def compile_context(task: str, budget: int, db: str):
+    def compile_context(
+        task: object = None,
+        budget: object = None,
+        db: object = None,
+        **unexpected: object,
+    ):
         try:
-            if not db.strip():
+            if unexpected:
+                raise StructuredError(
+                    "INVALID_INPUT",
+                    "Unexpected tool arguments",
+                    {"fields": sorted(unexpected)},
+                )
+            if not isinstance(task, str) or not task.strip():
+                raise StructuredError("INVALID_TASK", "Task must be non-empty text")
+            if isinstance(budget, bool) or not isinstance(budget, int) or budget < 0:
+                raise StructuredError(
+                    "INVALID_BUDGET", "Budget must be a non-negative integer"
+                )
+            if not isinstance(db, str) or not db.strip():
                 raise StructuredError("INVALID_DATABASE", "Database path must be non-empty")
-            package = ContextCompiler(KnowledgeRepository(db)).compile(task, budget)
+            package = ContextCompiler(
+                KnowledgeRepository(configured_db_path)
+            ).compile(task, budget)
             return _tool_result(package.to_dict(), is_error=False)
         except StructuredError as error:
             return _tool_result({"error": error.to_dict()}, is_error=True)
@@ -55,8 +88,10 @@ def create_server(db_path: str | Path):
             return _tool_result({"error": error.to_dict()}, is_error=True)
 
     # FastMCP derives its schema from the function signature.  Replace it with
-    # the public contract so clients also reject unknown fields.
-    server._tool_manager._tools["compile_context"].parameters = dict(_INPUT_SCHEMA)
+    # the public contract and preserve raw call values for strict validation.
+    tool = server._tool_manager._tools["compile_context"]
+    tool.parameters = dict(_INPUT_SCHEMA)
+    tool.fn_metadata.arg_model = _RuntimeArguments
     return server
 
 

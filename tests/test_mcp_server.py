@@ -79,12 +79,50 @@ def test_compile_context_returns_structured_errors_for_invalid_inputs(
     assert json.loads(result.content[0].text) == result.structuredContent
 
 
+@pytest.mark.parametrize(
+    "arguments, code",
+    [
+        ({"task": "task", "budget": 1, "db": "knowledge.sqlite", "extra": True}, "INVALID_INPUT"),
+        ({"task": "task", "budget": "1", "db": "knowledge.sqlite"}, "INVALID_BUDGET"),
+        ({"task": "task", "budget": True, "db": "knowledge.sqlite"}, "INVALID_BUDGET"),
+        ({"task": 1, "budget": 1, "db": "knowledge.sqlite"}, "INVALID_TASK"),
+        ({"task": "task", "budget": 1, "db": 1}, "INVALID_DATABASE"),
+    ],
+)
+def test_compile_context_enforces_its_runtime_input_contract(seeded_db, arguments, code):
+    result = _invoke(create_server(seeded_db), arguments)
+
+    assert result.isError is True
+    assert result.structuredContent["error"]["code"] == code
+    assert len(result.content) == 1
+    assert json.loads(result.content[0].text) == result.structuredContent
+
+
+def test_compile_context_cannot_be_redirected_to_a_client_database(seeded_db, tmp_path):
+    client_database = tmp_path / "client-selected.sqlite"
+    result = _invoke(
+        create_server(seeded_db),
+        {
+            "task": "activate coder values",
+            "budget": 1,
+            "db": str(client_database),
+        },
+    )
+    expected = ContextCompiler(KnowledgeRepository(seeded_db)).compile(
+        "activate coder values", 1
+    ).to_dict()
+
+    assert result.isError is False
+    assert result.structuredContent == expected
+    assert json.loads(result.content[0].text) == expected
+
+
 def test_compile_context_returns_a_sanitized_structured_database_error(seeded_db, tmp_path):
     database_directory = tmp_path / "not-a-database"
     database_directory.mkdir()
     result = _invoke(
-        create_server(seeded_db),
-        {"task": "activate coder values", "budget": 1, "db": str(database_directory)},
+        create_server(database_directory),
+        {"task": "activate coder values", "budget": 1, "db": str(seeded_db)},
     )
 
     assert result.isError is True
