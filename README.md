@@ -4,10 +4,10 @@ SEKR is a local, deterministic proof of concept for compiling a bounded context 
 
 ## Setup
 
-Requires Python 3.11 or later. Create an environment, install the project with its test and optional Neo4j dependencies, and load the curated fixture:
+Requires Python 3.11 or later. Create an environment, install the project with its test, MCP, and optional Neo4j dependencies, and load the curated fixture:
 
 ```powershell
-python -m pip install -e ".[test,neo4j]"
+python -m pip install -e ".[test,mcp,neo4j]"
 New-Item -ItemType Directory -Force .sekr
 sekr dataset load --db .sekr/knowledge.sqlite --source data/coder_activation.json
 ```
@@ -89,6 +89,32 @@ Run the tests:
 ```powershell
 pytest -q
 ```
+
+## MCP server
+
+Install the MCP extra when the server is the only optional feature you need:
+
+```powershell
+python -m pip install -e ".[mcp]"
+```
+
+Start the stdio server against a validated local database:
+
+```powershell
+sekr mcp serve --db .sekr/knowledge.sqlite
+```
+
+The server exposes one tool, `compile_context`, with `task` and `budget` arguments. A successful call returns the same JSON object as `ContextCompiler.compile(...).to_dict()` and is deterministic for the same database and arguments. Invalid task or budget inputs return an MCP tool error whose JSON text is `{"error": {"code": "...", ...}}`.
+
+MCP traffic uses stdout exclusively: do not print banners, logs, or diagnostics there, because stdout is the JSON-RPC transport. The server emits no application diagnostics to stderr during normal operation. The CLI's pre-server failures (for example, a missing MCP installation) remain structured JSON on stdout with a non-zero exit code.
+
+Run the real subprocess harness, which starts the server over stdio and compares it to the direct compiler:
+
+```powershell
+python -m pytest tests/test_mcp_harness.py -q
+```
+
+The harness verifies direct compiler equivalence, repeat-call determinism, structured invalid requests, and that compile output contains no evaluation-oracle fields.
 
 ## Neo4j projection
 
