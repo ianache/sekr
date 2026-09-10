@@ -201,11 +201,24 @@ class _LocalBindings(ast.NodeVisitor):
     def visit_Lambda(self, node: ast.Lambda) -> None:
         pass
 
-    # Comprehension targets belong to their own implicit function scope.
-    visit_ListComp = visit_Lambda
-    visit_SetComp = visit_Lambda
-    visit_DictComp = visit_Lambda
-    visit_GeneratorExp = visit_Lambda
+    def visit_ListComp(
+        self, node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp
+    ) -> None:
+        # Iteration targets stay in the comprehension, but walrus targets in
+        # its expressions bind in the enclosing scope (even when nested).
+        for generator in node.generators:
+            self.visit(generator.iter)
+            for condition in generator.ifs:
+                self.visit(condition)
+        if isinstance(node, ast.DictComp):
+            self.visit(node.key)
+            self.visit(node.value)
+        else:
+            self.visit(node.elt)
+
+    visit_SetComp = visit_ListComp
+    visit_DictComp = visit_ListComp
+    visit_GeneratorExp = visit_ListComp
 
 
 class _ImpactVisitor(ast.NodeVisitor):
@@ -257,6 +270,41 @@ class _ImpactVisitor(ast.NodeVisitor):
         for target in node.targets:
             self.visit(target)
 
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is not None:
+            self.visit(node.value)
+            self.visit(node.target)
+        elif not isinstance(node.target, ast.Name):
+            self.visit(node.target)
+        self.visit(node.annotation)
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        # Attribute/subscript targets are evaluated before the RHS; a name
+        # retains its previous binding until the updated value is stored.
+        if not isinstance(node.target, ast.Name):
+            self.visit(node.target)
+        self.visit(node.value)
+        if isinstance(node.target, ast.Name):
+            self.visit(node.target)
+
+    def visit_NamedExpr(self, node: ast.NamedExpr) -> None:
+        self.visit(node.value)
+        # A walrus escapes all enclosing comprehension scopes, but stops at
+        # a real function/lambda or module. Function scopes are analysis-local
+        # snapshots, preserving global/nonlocal isolation from sibling bodies.
+        for kind, bindings in reversed(self.scopes):
+            if kind != "comprehension":
+                bindings[node.target.id] = None
+                break
+
+    def visit_For(self, node: ast.For | ast.AsyncFor) -> None:
+        self.visit(node.iter)
+        self.visit(node.target)
+        for statement in (*node.body, *node.orelse):
+            self.visit(statement)
+
+    visit_AsyncFor = visit_For
+
     def visit_Call(self, node: ast.Call) -> None:
         name = _call_name(node.func)
         if name:
@@ -302,9 +350,17 @@ class _ImpactVisitor(ast.NodeVisitor):
                     None,
                 )
             if enclosing[-1][0] == "class":
-                for receiver in ("self", "cls"):
-                    if receiver in bindings:
-                        bindings[receiver] = ".".join((self.module, *self.names))
+                decorators = {_call_name(item) for item in node.decorator_list}
+                positional = [*node.args.posonlyargs, *node.args.args]
+                receiver = (
+                    "cls" if decorators & {"classmethod", "builtins.classmethod"}
+                    else "self"
+                )
+                if (
+                    not decorators & {"staticmethod", "builtins.staticmethod"}
+                    and positional and positional[0].arg == receiver
+                ):
+                    bindings[receiver] = ".".join((self.module, *self.names))
         # Class namespaces are not enclosing lexical scopes for child bodies.
         self.scopes = [scope for scope in enclosing if scope[0] != "class"]
         self.scopes.append(("class" if is_class else "function", bindings))
@@ -338,7 +394,7 @@ class _ImpactVisitor(ast.NodeVisitor):
         for generator in node.generators:
             locals_.visit(generator.target)
         self.scopes = [scope for scope in enclosing if scope[0] != "class"]
-        self.scopes.append(("function", dict.fromkeys(locals_.names)))
+        self.scopes.append(("comprehension", dict.fromkeys(locals_.names)))
         try:
             for index, generator in enumerate(node.generators):
                 if index:

@@ -537,3 +537,170 @@ def test_impact_resolves_a_closure_call_to_a_later_local_definition():
         {"source": "outer.use", "target": "consumer.py:outer.refresh",
          "relation": "calls", "path": "consumer.py"},
     ]
+
+
+@pytest.mark.parametrize("scope, statement", [
+    (scope, statement)
+    for scope in ("module", "class", "function")
+    for statement in (
+    "refresh = refresh()",
+    "other = refresh = refresh()",
+    "refresh, other = refresh()",
+    "refresh: object = refresh()",
+    "refresh += refresh()",
+    "(refresh := refresh())",
+    "for refresh in refresh():\n    refresh()\nelse:\n    refresh()",
+    "async for refresh in refresh():\n    refresh()\nelse:\n    refresh()",
+    )
+    if scope == "function" or not statement.startswith("async ")
+])
+def test_impact_evaluates_values_before_rebinding(statement, scope):
+    body = "from target import refresh\n" + statement + "\n"
+    # A separate source makes an accidental post-assignment edge observable.
+    body += "def later():\n    refresh()\n"
+    if scope == "module":
+        code, caller = body, "consumer"
+    else:
+        prefix = "class Consumer:" if scope == "class" else "async def use():"
+        code = prefix + "\n" + "\n".join("    " + line for line in body.splitlines())
+        caller = "Consumer" if scope == "class" else "use"
+    visitor = _ImpactVisitor(
+        "consumer.py", [Symbol("target.py", "refresh", "function", "()")]
+    )
+    compile(code, "consumer.py", "exec")
+    visitor.visit(ast.parse(code))
+
+    assert [edge.to_dict() for edge in sorted(visitor.edges)] == [
+        {"source": caller, "target": "target.py:refresh",
+         "relation": "calls", "path": "consumer.py"},
+        {"source": caller, "target": "target.py:refresh",
+         "relation": "imports", "path": "consumer.py"},
+    ]
+
+
+@pytest.mark.parametrize("expression", [
+    "[(refresh := replacement) for item in items]",
+    "{(refresh := replacement) for item in items}",
+    "{item: (refresh := replacement) for item in items}",
+    "{(refresh := replacement): item for item in items}",
+    "((refresh := replacement) for item in items)",
+    "[item for item in items if (refresh := replacement)]",
+    "[[(refresh := replacement) for inner in item] for item in items]",
+])
+@pytest.mark.parametrize("local_import", [False, True])
+def test_impact_comprehension_walrus_shadows_enclosing_function(expression, local_import):
+    code = "from target import refresh\ndef use():\n"
+    if local_import:
+        code += "    from target import refresh\n"
+    code += f"    {expression}\n    refresh()\n"
+    code += "def sibling():\n    refresh()\n"
+    visitor = _ImpactVisitor(
+        "consumer.py", [Symbol("target.py", "refresh", "function", "()")]
+    )
+    visitor.visit(ast.parse(code))
+
+    assert [edge.to_dict() for edge in sorted(visitor.edges) if edge.relation == "calls"] == [
+        {"source": "sibling", "target": "target.py:refresh",
+         "relation": "calls", "path": "consumer.py"},
+    ]
+
+
+@pytest.mark.parametrize("expression, callers", [
+    ("[(refresh := replacement) for item in items]", []),
+    ("[(lambda: (refresh := replacement)) for item in items]", ["use"]),
+    ("[refresh for refresh in items]", ["use"]),
+])
+def test_impact_comprehension_walrus_has_lexical_scope(expression, callers):
+    visitor = _ImpactVisitor(
+        "consumer.py", [Symbol("target.py", "refresh", "function", "()")]
+    )
+    visitor.visit(ast.parse(
+        "from target import refresh\ndef use():\n"
+        f"    refresh()\n    {expression}\n"
+    ))
+
+    assert sorted(edge.source for edge in visitor.edges if edge.relation == "calls") == callers
+
+
+@pytest.mark.parametrize("decorator, parameters, receiver, resolves", [
+    ("", "self", "self", True),
+    ("", "self, /, value=None", "self", True),
+    ("@classmethod", "cls", "cls", True),
+    ("@classmethod", "cls, /, value=None", "cls", True),
+    ("@builtins.classmethod", "cls", "cls", True),
+    ("@staticmethod", "self", "self", False),
+    ("@staticmethod", "cls", "cls", False),
+    ("@builtins.staticmethod", "self", "self", False),
+    ("", "other, self", "self", False),
+    ("", "self, cls", "cls", False),
+    ("", "other, /, self", "self", False),
+    ("", "*, self", "self", False),
+    ("", "*self", "self", False),
+    ("", "**cls", "cls", False),
+    ("", "cls", "cls", False),
+    ("@classmethod", "self", "self", False),
+    ("@classmethod", "other, cls", "cls", False),
+    ("@classmethod", "*, cls", "cls", False),
+])
+@pytest.mark.parametrize("definition", ["def", "async def"])
+def test_impact_only_infers_conventional_method_receivers(
+    decorator, parameters, receiver, resolves, definition,
+):
+    code = "class Consumer:\n"
+    if decorator:
+        code += f"    {decorator}\n"
+    code += f"    {definition} use({parameters}):\n        {receiver}.refresh()\n"
+    visitor = _ImpactVisitor(
+        "consumer.py", [Symbol("consumer.py", "Consumer.refresh", "function", "()")]
+    )
+    visitor.visit(ast.parse(code))
+
+    assert [edge.to_dict() for edge in sorted(visitor.edges)] == ([
+        {"source": "Consumer.use", "target": "consumer.py:Consumer.refresh",
+         "relation": "calls", "path": "consumer.py"},
+    ] if resolves else [])
+
+
+def test_impact_does_not_infer_receivers_from_method_locals_or_nested_parameters():
+    visitor = _ImpactVisitor(
+        "consumer.py", [Symbol("consumer.py", "Consumer.refresh", "function", "()")]
+    )
+    visitor.visit(ast.parse(
+        "class Consumer:\n"
+        "    def use(other):\n"
+        "        self.refresh()\n        self = other\n"
+        "        cls.refresh()\n        cls = other\n"
+        "    def method(self):\n"
+        "        def nested(self):\n            self.refresh()\n"
+    ))
+
+    assert visitor.edges == set()
+
+
+@pytest.mark.parametrize("code, callers", [
+    ("from target import refresh\nrefresh: object\nrefresh()\n", ["consumer"]),
+    ("def use():\n    from target import refresh\n"
+     "    refresh: object\n    refresh()\n", ["use"]),
+    ("from target import refresh\ndef use():\n"
+     "    refresh: object\n    refresh()\n", []),
+    ("from target import refresh\n"
+     "[(refresh := replacement) for item in items]\n"
+     "def later():\n    refresh()\n", []),
+    ("from target import refresh\ndef use():\n    global refresh\n"
+     "    [(refresh := replacement) for item in items]\n    refresh()\n"
+     "def sibling():\n    refresh()\n", ["sibling"]),
+    ("def outer():\n    from target import refresh\n"
+     "    def use():\n        nonlocal refresh\n"
+     "        [(refresh := replacement) for item in items]\n        refresh()\n"
+     "    refresh()\n", ["outer"]),
+    ("from target import refresh\ndef use():\n"
+     "    return lambda: ([(refresh := replacement) for item in items], refresh())\n"
+     "def sibling():\n    refresh()\n", ["sibling"]),
+])
+def test_impact_binding_updates_preserve_annotation_and_walrus_boundaries(code, callers):
+    visitor = _ImpactVisitor(
+        "consumer.py", [Symbol("target.py", "refresh", "function", "()")]
+    )
+    visitor.visit(ast.parse(code))
+
+    assert sorted(edge.source for edge in visitor.edges if edge.relation == "calls") == callers
