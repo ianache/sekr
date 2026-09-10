@@ -152,7 +152,11 @@ class _ImpactVisitor(ast.NodeVisitor):
         self.module = _module_name(path)
         self.names: list[str] = []
         self.aliases: dict[str, str] = {}
-        self.targets = tuple(target.qualified_name for target in targets)
+        self.targets: dict[str, list[str]] = {}
+        for target in targets:
+            qualified_target = f"{_module_name(target.path)}.{target.qualified_name}"
+            identity = f"{target.path}:{target.qualified_name}"
+            self.targets.setdefault(qualified_target, []).append(identity)
         self.edges: set[Impact] = set()
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
@@ -165,10 +169,14 @@ class _ImpactVisitor(ast.NodeVisitor):
         self._visit_scope(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        imported_module = _resolve_import_module(self.path, self.module, node)
         for alias in node.names:
             local_name = alias.asname or alias.name
-            self.aliases[local_name] = alias.name
-            target = self._resolve_target(alias.name)
+            imported_name = ".".join(
+                part for part in (imported_module, alias.name) if part
+            )
+            self.aliases[local_name] = imported_name
+            target = self._resolve_target(imported_name)
             if target is not None:
                 self._add(target, "imports")
 
@@ -180,11 +188,7 @@ class _ImpactVisitor(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call) -> None:
         name = _call_name(node.func)
         if name:
-            first, separator, remainder = name.partition(".")
-            expanded = self.aliases.get(first, first)
-            if separator:
-                expanded = f"{expanded}.{remainder}"
-            target = self._resolve_target(expanded)
+            target = self._resolve_call_target(name)
             if target is not None:
                 self._add(target, "calls")
         self.generic_visit(node)
@@ -197,17 +201,28 @@ class _ImpactVisitor(ast.NodeVisitor):
         self.names.pop()
 
     def _resolve_target(self, candidate: str) -> str | None:
-        exact = [target for target in self.targets if target == candidate]
-        if exact:
-            return exact[0]
-        suffix = [
-            target
-            for target in self.targets
-            if candidate.endswith(f".{target}")
-            or target.endswith(f".{candidate}")
-            or target.rsplit(".", 1)[-1] == candidate.rsplit(".", 1)[-1]
-        ]
-        return suffix[0] if len(suffix) == 1 else None
+        matches = self.targets.get(candidate, ())
+        return matches[0] if len(matches) == 1 else None
+
+    def _resolve_call_target(self, name: str) -> str | None:
+        first, separator, remainder = name.partition(".")
+        imported = self.aliases.get(first)
+        if imported is not None:
+            candidate = f"{imported}.{remainder}" if separator else imported
+            return self._resolve_target(candidate)
+
+        if first in {"self", "cls"} and self.names:
+            candidate_parts = [self.module, *self.names[:-1]]
+            if separator:
+                candidate_parts.append(remainder)
+            return self._resolve_target(".".join(candidate_parts))
+
+        for depth in range(len(self.names), -1, -1):
+            candidate = ".".join((self.module, *self.names[:depth], name))
+            target = self._resolve_target(candidate)
+            if target is not None:
+                return target
+        return None
 
     def _add(self, target: str, relation: str) -> None:
         self.edges.add(
@@ -357,3 +372,20 @@ def _module_name(path: str) -> str:
     if parts[-1:] == ["__init__"]:
         parts.pop()
     return ".".join(parts)
+
+
+def _resolve_import_module(
+    path: str, current_module: str, node: ast.ImportFrom
+) -> str:
+    if node.level == 0:
+        return node.module or ""
+
+    package_parts = current_module.split(".")
+    if PurePosixPath(path).name != "__init__.py":
+        package_parts.pop()
+    parent_count = node.level - 1
+    if parent_count:
+        package_parts = package_parts[:-parent_count]
+    if node.module:
+        package_parts.extend(node.module.split("."))
+    return ".".join(package_parts)

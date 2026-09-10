@@ -155,19 +155,19 @@ def test_delta_reports_sorted_import_and_call_impacts_for_changed_symbols(delta_
     assert impact == [
         {
             "source": "consumer",
-            "target": "Service",
+            "target": "pkg/service.py:Service",
             "relation": "imports",
             "path": "consumer.py",
         },
         {
             "source": "use_service",
-            "target": "Service",
+            "target": "pkg/service.py:Service",
             "relation": "calls",
             "path": "consumer.py",
         },
         {
             "source": "use_service",
-            "target": "Service.changed",
+            "target": "pkg/service.py:Service.changed",
             "relation": "calls",
             "path": "consumer.py",
         },
@@ -203,17 +203,94 @@ def test_delta_detects_body_only_changes_and_impacts_in_unchanged_head_files(tmp
     assert payload["impact"] == [
         {
             "source": "consumer",
-            "target": "changed",
+            "target": "target.py:changed",
             "relation": "imports",
             "path": "consumer.py",
         },
         {
             "source": "use",
-            "target": "changed",
+            "target": "target.py:changed",
             "relation": "calls",
             "path": "consumer.py",
         },
     ]
+
+
+def test_delta_resolves_same_named_symbols_by_imported_module(tmp_path: Path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Delta Tester")
+    _git(repo, "config", "user.email", "delta@example.test")
+    _write(repo, "alpha.py", "def refresh():\n    return 1\n")
+    _write(repo, "beta.py", "def refresh():\n    return 1\n")
+    _write(
+        repo,
+        "consumer.py",
+        "from alpha import refresh as refresh_alpha\n"
+        "from beta import refresh as refresh_beta\n\n"
+        "def use_both():\n"
+        "    return refresh_alpha() + refresh_beta()\n",
+    )
+    base = _commit(repo, "base")
+    _write(repo, "alpha.py", "def refresh():\n    return 2\n")
+    _write(repo, "beta.py", "def refresh():\n    return 3\n")
+    head = _commit(repo, "head")
+
+    impact = build_delta(GitDeltaSource(repo), base, head).to_dict()["impact"]
+
+    assert impact == [
+        {
+            "source": "consumer",
+            "target": "alpha.py:refresh",
+            "relation": "imports",
+            "path": "consumer.py",
+        },
+        {
+            "source": "consumer",
+            "target": "beta.py:refresh",
+            "relation": "imports",
+            "path": "consumer.py",
+        },
+        {
+            "source": "use_both",
+            "target": "alpha.py:refresh",
+            "relation": "calls",
+            "path": "consumer.py",
+        },
+        {
+            "source": "use_both",
+            "target": "beta.py:refresh",
+            "relation": "calls",
+            "path": "consumer.py",
+        },
+    ]
+
+
+def test_delta_does_not_link_same_named_symbol_imported_from_wrong_module(
+    tmp_path: Path,
+):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.name", "Delta Tester")
+    _git(repo, "config", "user.email", "delta@example.test")
+    _write(repo, "changed_module.py", "def refresh():\n    return 1\n")
+    _write(repo, "unchanged_module.py", "def refresh():\n    return 10\n")
+    _write(
+        repo,
+        "consumer.py",
+        "from unchanged_module import refresh\n\n"
+        "def use_refresh():\n"
+        "    return refresh()\n",
+    )
+    base = _commit(repo, "base")
+    _write(repo, "changed_module.py", "def refresh():\n    return 2\n")
+    head = _commit(repo, "head")
+
+    impact = build_delta(GitDeltaSource(repo), base, head).to_dict()["impact"]
+
+    assert impact == []
 
 
 def test_delta_maps_malformed_python_to_safe_stable_error(tmp_path: Path):
