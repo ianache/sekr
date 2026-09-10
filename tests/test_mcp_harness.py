@@ -70,17 +70,17 @@ def test_harness_matches_direct_compiler_and_excludes_oracle_fields(seeded_db):
 
 
 @pytest.mark.parametrize(
-    "request, code",
+    "request_payload, code",
     [
         ({"task": "", "budget": 3, "db": "ignored"}, "INVALID_TASK"),
         ({"task": "activate coder values", "budget": -1, "db": "ignored"}, "INVALID_BUDGET"),
     ],
 )
-def test_harness_returns_structured_invalid_request(request, code, seeded_db):
-    request["db"] = str(seeded_db)
+def test_harness_returns_structured_invalid_request(request_payload, code, seeded_db):
+    request_payload["db"] = str(seeded_db)
     with MCPHarness(seeded_db, timeout=5) as harness:
         harness.initialize()
-        result = harness.call_tool("compile_context", request)
+        result = harness.call_tool("compile_context", request_payload)
 
     assert result["isError"] is True
     assert result["structuredContent"]["error"]["code"] == code
