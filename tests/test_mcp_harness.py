@@ -1,8 +1,14 @@
 """Subprocess protocol tests for the dependency-light MCP client."""
 
+from importlib.util import find_spec
 from pathlib import Path
+import subprocess
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    find_spec("mcp") is None, reason="MCP SDK is not installed"
+)
 
 from sekr.db import init_db, load_dataset
 from sekr.compiler import ContextCompiler
@@ -16,6 +22,25 @@ def seeded_db(tmp_path):
     init_db(db_path)
     load_dataset(db_path, Path("data/coder_activation.json"))
     return db_path
+
+
+def test_harness_forces_utf8_for_all_subprocess_pipes(seeded_db, monkeypatch):
+    """Catches Windows locale defaults corrupting UTF-8 JSON-RPC text."""
+    monkeypatch.setattr(subprocess, "_text_encoding", lambda: "cp1252")
+
+    with MCPHarness(seeded_db, timeout=5) as harness:
+        process = harness._process
+        encodings = (
+            process.stdin.encoding,
+            process.stdout.encoding,
+            process.stderr.encoding,
+        )
+
+    assert tuple(encoding.lower().replace("-", "") for encoding in encodings) == (
+        "utf8",
+        "utf8",
+        "utf8",
+    )
 
 
 def test_harness_initializes_discovers_and_calls_compiler_deterministically(seeded_db):

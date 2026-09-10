@@ -1,10 +1,15 @@
 """Contract tests for the SEKR MCP tool registration and responses."""
 
 import asyncio
+from importlib.util import find_spec
 import json
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    find_spec("mcp") is None, reason="MCP SDK is not installed"
+)
 
 from sekr.compiler import ContextCompiler
 from sekr.db import KnowledgeRepository, init_db, load_dataset
