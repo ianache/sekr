@@ -67,6 +67,11 @@ def _build_parser() -> _Parser:
     neo4j.add_argument("--user", metavar="USER")
     neo4j.add_argument("--password", metavar="PASSWORD")
     neo4j.add_argument("--dry-run", action="store_true")
+
+    mcp = commands.add_parser("mcp")
+    mcp_commands = mcp.add_subparsers(dest="mcp_command", required=True)
+    serve = mcp_commands.add_parser("serve")
+    serve.add_argument("--db", required=True, metavar="PATH")
     return parser
 
 
@@ -100,6 +105,21 @@ def _read_task(task: str | None, task_file: str | None) -> str:
 
 def _connection_value(value: str | None, environment_name: str) -> str | None:
     return value or os.environ.get(environment_name)
+
+
+def _serve_mcp(db_path: str) -> None:
+    try:
+        from sekr.mcp_server import run_server
+
+        run_server(db_path)
+    except ModuleNotFoundError as error:
+        if error.name != "mcp":
+            raise
+        raise StructuredError(
+            "MCP_UNAVAILABLE",
+            "MCP support is not installed",
+            {"hint": "Install it with: pip install mcp"},
+        ) from None
 
 
 def _dispatch(arguments: argparse.Namespace) -> dict[str, object]:
@@ -174,6 +194,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     try:
         arguments = parser.parse_args(argv)
+        if arguments.command == "mcp":
+            _serve_mcp(arguments.db)
+            return 0
         _emit(_dispatch(arguments))
         return 0
     except StructuredError as error:

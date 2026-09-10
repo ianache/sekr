@@ -70,6 +70,41 @@ def run_with_patched_neo4j_adapter(*args, env):
     )
 
 
+def run_with_patched_mcp_server(*args, marker_path, sdk_unavailable=False):
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(Path("src").resolve())
+    script = textwrap.dedent(
+        """
+        import sys
+        from pathlib import Path
+        from types import ModuleType
+
+        server = ModuleType("sekr.mcp_server")
+
+        def run_server(db_path):
+            if sys.argv[2] == "unavailable":
+                raise ModuleNotFoundError("No module named 'mcp'", name="mcp")
+            Path(sys.argv[1]).write_text(str(db_path), encoding="utf-8")
+            print('{"jsonrpc":"2.0","method":"ready"}')
+
+        server.run_server = run_server
+        sys.modules["sekr.mcp_server"] = server
+
+        from sekr.cli import main
+
+        raise SystemExit(main(sys.argv[3:]))
+        """
+    )
+    mode = "unavailable" if sdk_unavailable else "available"
+    return subprocess.run(
+        [sys.executable, "-c", script, str(marker_path), mode, *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+    )
+
+
 def remove_required_provenance(db_path):
     with sqlite3.connect(db_path) as connection:
         connection.execute("PRAGMA ignore_check_constraints = ON")
@@ -77,6 +112,34 @@ def remove_required_provenance(db_path):
             "UPDATE artifacts SET evidence_json = ? WHERE id = ?",
             (json.dumps([]), "symbol.coder_value_service"),
         )
+
+
+def test_mcp_serve_forwards_database_and_leaves_stdout_to_server(tmp_path):
+    marker_path = tmp_path / "server-db.txt"
+    database_path = tmp_path / "knowledge.sqlite"
+
+    result = run_with_patched_mcp_server(
+        "mcp", "serve", "--db", str(database_path), marker_path=marker_path
+    )
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout == '{"jsonrpc":"2.0","method":"ready"}\n'
+    assert marker_path.read_text(encoding="utf-8") == str(database_path)
+
+
+def test_mcp_serve_reports_missing_optional_sdk_as_structured_error(tmp_path):
+    result = run_with_patched_mcp_server(
+        "mcp", "serve", "--db", str(tmp_path / "knowledge.sqlite"),
+        marker_path=tmp_path / "unused.txt",
+        sdk_unavailable=True,
+    )
+
+    assert result.returncode == 1
+    assert result.stderr == ""
+    error = json.loads(result.stdout)["error"]
+    assert error["code"] == "MCP_UNAVAILABLE"
+    assert "pip install" in error["details"]["hint"]
 
 
 def test_context_compile_emits_json_and_zero_exit(seeded_db, runner):
