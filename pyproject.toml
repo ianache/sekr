@@ -13,6 +13,7 @@ dependencies = []
 sekr = "sekr.cli:main"
 
 [project.optional-dependencies]
+mcp = ["mcp>=1,<2"]
 neo4j = ["neo4j>=5,<7"]
 test = ["pytest"]
 
