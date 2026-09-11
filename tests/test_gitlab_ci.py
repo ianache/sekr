@@ -1,9 +1,37 @@
 from pathlib import Path
-
-import yaml
+import re
 
 
 ROOT = Path(__file__).parents[1]
+
+
+def _parse_ci_contract(pipeline):
+    """Parse the CI file's mapping shape without requiring a YAML package."""
+    config = {}
+    current = None
+    for line_number, line in enumerate(pipeline.splitlines(), start=1):
+        if "\t" in line:
+            raise AssertionError(f"YAML tabs are not allowed on line {line_number}")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        mapping = re.match(r"^([A-Za-z0-9_.-]+):(?:\s*(.*))?$", stripped)
+        if indent == 0:
+            if mapping is None:
+                raise AssertionError(f"Invalid top-level YAML mapping on line {line_number}")
+            current = mapping.group(1)
+            config[current] = mapping.group(2) or {}
+            continue
+        if current is None:
+            raise AssertionError(f"Indented YAML content has no parent on line {line_number}")
+        if indent == 2 and mapping is not None:
+            if not isinstance(config[current], dict):
+                raise AssertionError(f"Scalar YAML key has nested content on line {line_number}")
+            config[current][mapping.group(1)] = mapping.group(2) or {}
+        elif not stripped.startswith("- ") and mapping is None:
+            raise AssertionError(f"Invalid YAML content on line {line_number}")
+    return config
 
 
 def test_gitlab_pipeline_defines_blocking_knowledge_check_with_report_artifact():
@@ -54,7 +82,7 @@ def test_gitlab_pipeline_defines_knowledge_freshness_report_job_without_baseline
 
 def test_gitlab_pipeline_freshness_job_inherits_global_python_image():
     pipeline = (ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")
-    config = yaml.safe_load(pipeline)
+    config = _parse_ci_contract(pipeline)
 
     assert config["image"] == "python:3.12-slim"
     assert "image" not in config["knowledge-freshness"]
