@@ -49,7 +49,8 @@ def check_knowledge(current: Snapshot, baseline: Snapshot) -> KnowledgeCheckRepo
     """Check integrity and compare a current snapshot against its baseline."""
     current_nodes, current_relationships = _snapshot_records(current, "current")
     baseline_nodes, baseline_relationships = _snapshot_records(baseline, "baseline")
-    issues = _integrity_issues(current_nodes, current_relationships)
+    issues = _integrity_issues(current_nodes, current_relationships, "current")
+    issues.extend(_integrity_issues(baseline_nodes, baseline_relationships, "baseline"))
     diff = {
         "nodes": _diff_records(current_nodes, baseline_nodes, "kind", "key"),
         "relationships": _diff_records(current_relationships, baseline_relationships, "key"),
@@ -71,11 +72,38 @@ def _snapshot_records(
         raise StructuredError(
             "INVALID_KNOWLEDGE", f"{label.capitalize()} snapshot records must be objects"
         )
+    for index, node in enumerate(nodes):
+        _require_fields(node, ("kind", "key", "properties"), f"{label} node {index}")
+        if not isinstance(node["kind"], str) or not node["kind"]:
+            raise StructuredError("INVALID_KNOWLEDGE", f"{label.capitalize()} node kind must be a non-empty string")
+        if not isinstance(node["key"], str) or not node["key"]:
+            raise StructuredError("INVALID_KNOWLEDGE", f"{label.capitalize()} node key must be a non-empty string")
+        if not isinstance(node["properties"], dict):
+            raise StructuredError("INVALID_KNOWLEDGE", f"{label.capitalize()} node properties must be an object")
+    for index, relationship in enumerate(relationships):
+        _require_fields(
+            relationship,
+            ("key", "source_kind", "source_key", "target_kind", "target_key", "properties"),
+            f"{label} relationship {index}",
+        )
+        for field in ("key", "source_kind", "source_key", "target_kind", "target_key"):
+            if not isinstance(relationship[field], str) or not relationship[field]:
+                raise StructuredError("INVALID_KNOWLEDGE", f"{label.capitalize()} relationship {field} must be a non-empty string")
+        if not isinstance(relationship["properties"], dict):
+            raise StructuredError("INVALID_KNOWLEDGE", f"{label.capitalize()} relationship properties must be an object")
     return list(nodes), list(relationships)
 
 
+def _require_fields(record: Mapping[str, object], fields: tuple[str, ...], label: str) -> None:
+    missing = [field for field in fields if field not in record]
+    if missing:
+        raise StructuredError(
+            "INVALID_KNOWLEDGE", f"{label.capitalize()} is missing required fields", {"missing": missing}
+        )
+
+
 def _integrity_issues(
-    nodes: list[dict[str, object]], relationships: list[dict[str, object]]
+    nodes: list[dict[str, object]], relationships: list[dict[str, object]], snapshot: str
 ) -> list[dict[str, object]]:
     issues: list[dict[str, object]] = []
     node_counts: dict[tuple[object, object], int] = {}
@@ -88,10 +116,13 @@ def _integrity_issues(
         (identity for identity, count in node_counts.items() if count > 1),
         key=lambda value: (str(value[0]), str(value[1])),
     ):
+        details = {"kind": kind, "key": key}
+        if snapshot == "baseline":
+            details["snapshot"] = snapshot
         issues.append({
             "code": "DUPLICATE_NODE",
             "message": "Node key is duplicated",
-            "details": {"kind": kind, "key": key},
+            "details": details,
         })
 
     relationship_counts: dict[object, int] = {}
@@ -102,10 +133,13 @@ def _integrity_issues(
         (key for key, count in relationship_counts.items() if count > 1),
         key=lambda value: str(value),
     ):
+        details = {"key": key}
+        if snapshot == "baseline":
+            details["snapshot"] = snapshot
         issues.append({
             "code": "DUPLICATE_RELATIONSHIP",
             "message": "Relationship key is duplicated",
-            "details": {"key": key},
+            "details": details,
         })
 
     for relationship in relationships:
@@ -117,10 +151,13 @@ def _integrity_issues(
             if identity not in node_keys:
                 missing.append({"kind": identity[0], "key": identity[1]})
         if missing:
+            details = {"key": relationship.get("key"), "missing": missing}
+            if snapshot == "baseline":
+                details["snapshot"] = snapshot
             issues.append({
                 "code": "ORPHAN_RELATIONSHIP",
                 "message": "Relationship endpoint is missing",
-                "details": {"key": relationship.get("key"), "missing": missing},
+                "details": details,
             })
     return issues
 

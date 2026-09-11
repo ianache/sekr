@@ -105,6 +105,12 @@ Invalid refs and other delta failures produce structured JSON on stdout with
 a stable error code such as `DELTA_INVALID_REF`, rather than a traceback. The
 error response does not include full local repository paths.
 
+The command reads Git objects with argument-array subprocess calls and never
+executes code from either ref. It reports file changes for all paths, but
+symbol extraction and import/call impact analysis apply only to parseable
+Python files. It does not infer natural-language semantics, update SQLite or
+Neo4j, or expose the delta through MCP.
+
 ### Knowledge checks
 
 Validate a knowledge snapshot against a deterministic baseline:
@@ -118,15 +124,9 @@ sekr knowledge-check --input knowledge.json --baseline knowledge-baseline.json `
 The input and baseline can be canonical snapshots with `nodes` and
 `relationships`, or validated SEKR dataset JSON files. The report identifies
 added, removed, and changed records and checks duplicate node/relationship
-keys plus orphan relationship endpoints. The command exits `0` only when the
-knowledge is structurally valid and identical to the baseline; drift or
-integrity violations return `1`.
-
-The command reads Git objects with argument-array subprocess calls and never
-executes code from either ref. It reports file changes for all paths, but
-symbol extraction and import/call impact analysis apply only to parseable
-Python files. It does not infer natural-language semantics, update SQLite or
-Neo4j, or expose the delta through MCP.
+keys plus orphan relationship endpoints in both snapshots. The command exits
+`0` only when the knowledge is structurally valid and identical to the
+baseline; drift or integrity violations return `1`.
 
 Evaluation output reports precision at K, critical recall, context size, false-positive rate and IDs, plus reproducibility. It never emits the oracle itself.
 

@@ -454,3 +454,16 @@ def test_knowledge_check_returns_one_and_writes_report_for_drift(tmp_path, runne
     assert result.stdout == ""
     assert result.stderr == f"Wrote knowledge check report to {output}\n"
     assert json.loads(output.read_text(encoding="utf-8"))["valid"] is False
+
+
+def test_knowledge_check_returns_structured_error_for_malformed_snapshot(tmp_path, runner):
+    current = tmp_path / "current.json"
+    baseline = tmp_path / "baseline.json"
+    current.write_text(json.dumps({"nodes": [{"kind": "Fact"}], "relationships": []}), encoding="utf-8")
+    baseline.write_text(json.dumps({"nodes": [], "relationships": []}), encoding="utf-8")
+
+    result = runner("knowledge-check", "--input", str(current), "--baseline", str(baseline))
+
+    assert result.returncode == 1
+    assert result.stderr == ""
+    assert json.loads(result.stdout)["error"]["code"] == "INVALID_KNOWLEDGE"

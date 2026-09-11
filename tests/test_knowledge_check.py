@@ -1,3 +1,6 @@
+import pytest
+
+from sekr.errors import StructuredError
 from sekr.knowledge_check import check_knowledge
 
 
@@ -84,3 +87,29 @@ def test_knowledge_check_reports_duplicate_relationship_keys():
         {"code": "DUPLICATE_RELATIONSHIP", "message": "Relationship key is duplicated",
          "details": {"key": "r"}},
     ]
+
+
+def test_knowledge_check_rejects_duplicate_records_in_baseline():
+    snapshot = _snapshot([_node("Artifact", "a")])
+    baseline = _snapshot([_node("Artifact", "a"), _node("Artifact", "a")])
+
+    report = check_knowledge(snapshot, baseline)
+
+    assert report.valid is False
+    assert list(report.issues) == [
+        {"code": "DUPLICATE_NODE", "message": "Node key is duplicated",
+         "details": {"kind": "Artifact", "key": "a", "snapshot": "baseline"}},
+    ]
+
+
+@pytest.mark.parametrize("snapshot", [
+    _snapshot([{"kind": "Artifact", "properties": {}}]),
+    _snapshot([{"kind": "Artifact", "key": [] , "properties": {}}]),
+    _snapshot([], [{"key": "r", "source_kind": "Artifact", "source_key": "a",
+                    "target_kind": "Artifact", "target_key": "b"}]),
+])
+def test_knowledge_check_rejects_malformed_snapshot(snapshot):
+    with pytest.raises(StructuredError) as error:
+        check_knowledge(snapshot, _snapshot())
+
+    assert error.value.code == "INVALID_KNOWLEDGE"
