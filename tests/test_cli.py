@@ -637,3 +637,28 @@ def test_knowledge_freshness_unwritable_output_returns_structured_error(tmp_path
 
     assert result.returncode == 1
     assert json.loads(result.stdout)["error"]["code"] == "KNOWLEDGE_OUTPUT_ERROR"
+
+
+def test_knowledge_freshness_never_overwrites_input(tmp_path, runner):
+    snapshot = tmp_path / "snapshot.json"
+    original = json.dumps({"nodes": [], "relationships": []})
+    snapshot.write_text(original, encoding="utf-8")
+
+    result = runner("knowledge-freshness", "--input", str(snapshot), "--as-of", "2026-09-11T12:00:00Z", "--output", str(snapshot))
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["error"]["code"] == "KNOWLEDGE_OUTPUT_ERROR"
+    assert snapshot.read_text(encoding="utf-8") == original
+
+
+def test_knowledge_freshness_never_overwrites_approved_baseline(tmp_path, runner):
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text(json.dumps({"nodes": [], "relationships": []}), encoding="utf-8")
+    baseline = tmp_path / "baseline.json"
+    baseline.write_text("approved", encoding="utf-8")
+
+    result = runner("knowledge-freshness", "--input", str(snapshot), "--as-of", "2026-09-11T12:00:00Z", "--output", str(baseline), env={"SEKR_KNOWLEDGE_BASELINE": str(baseline)})
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["error"]["code"] == "KNOWLEDGE_OUTPUT_ERROR"
+    assert baseline.read_text(encoding="utf-8") == "approved"

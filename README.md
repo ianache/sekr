@@ -163,6 +163,9 @@ runs the same read-only report in the `knowledge-freshness` job using
 `SEKR_KNOWLEDGE_AS_OF=2026-09-11T00:00:00Z`; it publishes
 `.sekr/knowledge-freshness.json` as an artifact for one week. Review and
 approve baseline changes separately through `knowledge-baseline-propose`.
+The freshness job is report-only (`allow_failure: true`): non-current
+records are visible in the artifact but do not bypass or replace the blocking
+`knowledge-check` policy.
 
 The enforcement policy is stored in `.sekr/knowledge-policy.json`. Its
 default `strict` mode blocks all drift. `report-only` preserves the report but

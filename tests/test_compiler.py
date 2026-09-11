@@ -143,7 +143,10 @@ def test_compile_orders_equal_scores_by_artifact_id(seeded_db):
         ("symbol.tie_beta", "symbol", "Tie beta", "tie", None, json.dumps(["test:1"]), "VERIFIED"),
     ]
     with sqlite3.connect(seeded_db) as connection:
-        connection.executemany("INSERT INTO artifacts VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
+        connection.executemany(
+            "INSERT INTO artifacts (id, artifact_type, title, description, path, evidence_json, confidence) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
 
     package = ContextCompiler(KnowledgeRepository(seeded_db)).compile("tie", budget=2)
 
@@ -159,7 +162,8 @@ def test_compile_preserves_fact_provenance_in_sections_and_items(seeded_db):
         "source": "Service regression test",
         "evidence": ["tenant/tests/test_coder_value_service.py:44-78"],
         "confidence": "VERIFIED", "freshness": "current", "sourceVersion": "0.1",
-        "validFrom": None, "scope": "Tenant Coder activation", "owner": "Tenant domain",
+        "validFrom": None, "contentHash": None, "observedAt": None, "validUntil": None,
+        "scope": "Tenant Coder activation", "owner": "Tenant domain",
     }
     service = next(item for item in payload["items"] if item["id"] == "symbol.coder_value_service")
     assert service["facts"] == [fact]
@@ -178,7 +182,10 @@ def test_compile_warns_on_evidence_free_fact_despite_artifact_evidence(seeded_db
 @pytest.mark.parametrize(("field", "value"), [("confidence", "UNKNOWN"), ("freshness", "stale")])
 def test_fact_quality_changes_ranking(seeded_db, field, value):
     with sqlite3.connect(seeded_db) as connection:
-        connection.executemany("INSERT INTO artifacts VALUES (?, 'symbol', 'Tie', 'tie', NULL, '[\"source:1\"]', 'VERIFIED')", [("tie.a",), ("tie.b",)])
+        connection.executemany(
+            "INSERT INTO artifacts (id, artifact_type, title, description, path, evidence_json, confidence) VALUES (?, 'symbol', 'Tie', 'tie', NULL, '[\"source:1\"]', 'VERIFIED')",
+            [("tie.a",), ("tie.b",)],
+        )
         connection.executemany("INSERT INTO facts (id, artifact_id, statement, evidence_json, confidence, freshness) VALUES (?, ?, 'tie fact', '[\"source:2\"]', 'VERIFIED', 'current')", [("fact.a", "tie.a"), ("fact.b", "tie.b")])
     compiler = ContextCompiler(KnowledgeRepository(seeded_db))
     assert [item.id for item in compiler.compile("tie", 2).items] == ["tie.a", "tie.b"]

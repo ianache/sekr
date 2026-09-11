@@ -88,6 +88,20 @@ def test_gitlab_pipeline_freshness_job_inherits_global_python_image():
     assert "image" not in config["knowledge-freshness"]
 
 
+def test_gitlab_freshness_reporting_does_not_block_knowledge_policy():
+    pipeline = (ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")
+    job = pipeline.split("knowledge-freshness:", 1)[1].split("\n\n", 1)[0]
+
+    assert "allow_failure: true" in job
+
+
+def test_readme_documents_freshness_job_as_report_only():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "allow_failure: true" in readme
+    assert "do not bypass" in readme.lower()
+
+
 def test_readme_documents_freshness_reporting_and_baseline_approval_separately():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 

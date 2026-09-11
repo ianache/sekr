@@ -324,6 +324,16 @@ def _write_freshness_output(path: str, payload: dict[str, object]) -> None:
     print(f"Wrote knowledge freshness report to {path}", file=os.sys.stderr)
 
 
+def _ensure_freshness_output_is_safe(output: str | Path, input_path: str | Path) -> None:
+    output_path = Path(output).resolve()
+    protected = {Path(input_path).resolve(), (Path.cwd() / "data" / "knowledge-baseline.json").resolve()}
+    configured_baseline = os.environ.get("SEKR_KNOWLEDGE_BASELINE")
+    if configured_baseline:
+        protected.add(Path(configured_baseline).resolve())
+    if output_path in protected:
+        raise StructuredError("KNOWLEDGE_OUTPUT_ERROR", "Knowledge freshness output must not overwrite an input or approved baseline")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     try:
@@ -339,6 +349,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif arguments.command == "knowledge-snapshot":
             _write_snapshot_output(arguments.output, payload)
         elif arguments.command == "knowledge-freshness" and arguments.output is not None:
+            _ensure_freshness_output_is_safe(arguments.output, arguments.input)
             _write_freshness_output(arguments.output, payload)
         else:
             _emit(payload)

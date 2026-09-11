@@ -3,6 +3,9 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timezone
 
+import pytest
+
+from sekr.errors import StructuredError
 from sekr.freshness import evaluate_freshness
 
 
@@ -11,6 +14,28 @@ AS_OF = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc)
 
 def _hash(content: bytes) -> str:
     return f"sha256:{hashlib.sha256(content).hexdigest()}"
+
+
+def test_freshness_rejects_malformed_provenance_before_evaluation(tmp_path):
+    snapshot = {"nodes": [{"kind": "Fact", "key": "bad", "properties": {
+        "content_hash": "md5:bad", "valid_until": "not-a-date",
+    }}], "relationships": []}
+
+    with pytest.raises(StructuredError) as error:
+        evaluate_freshness(snapshot, AS_OF, tmp_path)
+
+    assert error.value.code == "INVALID_PROVENANCE"
+
+
+def test_freshness_rejects_scalar_evidence_consistently(tmp_path):
+    snapshot = {"nodes": [{"kind": "Fact", "key": "bad", "properties": {
+        "evidence": "docs/a.md",
+    }}], "relationships": []}
+
+    with pytest.raises(StructuredError) as error:
+        evaluate_freshness(snapshot, AS_OF, tmp_path)
+
+    assert error.value.code == "INVALID_EVIDENCE"
 
 
 def test_evaluate_freshness_assigns_all_states_and_uses_precedence(tmp_path):

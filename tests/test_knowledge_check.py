@@ -47,6 +47,20 @@ def test_knowledge_check_accepts_identical_valid_snapshot():
     }
 
 
+def test_knowledge_check_accepts_legacy_projection_null_valid_from():
+    snapshot = projection_to_snapshot(build_graph_projection(Path("data/coder_activation.json")))
+
+    assert snapshot["nodes"][0]["properties"].get("valid_from") is None
+    assert check_knowledge(snapshot, snapshot).valid is True
+
+
+def test_knowledge_check_rejects_scalar_evidence():
+    with pytest.raises(StructuredError) as error:
+        check_knowledge(_snapshot([_node("Fact", "fact-a", evidence="docs/a.md")]), _snapshot())
+
+    assert error.value.code == "INVALID_EVIDENCE"
+
+
 def test_knowledge_check_accepts_valid_provenance_fields():
     snapshot = _snapshot([
         _node(

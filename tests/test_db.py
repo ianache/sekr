@@ -82,6 +82,29 @@ def test_search_returns_service_query_and_test_candidates(tmp_path):
     assert "test.active_values_exclude_inactive" in ids
 
 
+def test_search_retrieval_preserves_artifact_provenance(tmp_path):
+    dataset = curated_dataset()
+    provenance = {
+        "source": "ADR 004", "evidence": ["docs/adr.md:1-2"],
+        "source_version": "0.1", "content_hash": "sha256:" + "a" * 64,
+        "observed_at": "2026-09-11T00:00:00Z",
+        "valid_from": "2026-09-01T00:00:00Z",
+        "valid_until": "2026-09-30T00:00:00Z",
+    }
+    dataset["artifacts"][0].update(provenance)
+    db_path = tmp_path / "knowledge.sqlite"
+    load_dataset(db_path, write_dataset(tmp_path, dataset))
+
+    candidate = next(candidate for candidate in KnowledgeRepository(db_path).search_candidates(["coder"])
+                     if candidate.artifact.id == dataset["artifacts"][0]["id"])
+
+    assert candidate.artifact.id == dataset["artifacts"][0]["id"]
+    assert {field: getattr(candidate.artifact, field) for field in provenance if field != "evidence"} == {
+        field: provenance[field] for field in provenance if field != "evidence"
+    }
+    assert candidate.artifact.evidence == provenance["evidence"]
+
+
 def test_loader_links_curated_facts_to_their_related_artifact(tmp_path):
     db_path = seeded_db(tmp_path)
     with sqlite3.connect(db_path) as connection:

@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping
 
-from sekr.provenance import is_strict_utc_timestamp
+from sekr.errors import StructuredError
+from sekr.provenance import is_strict_utc_timestamp, validate_provenance
 
 
 _STATES = ("conflicted", "unverified", "changed", "stale", "current")
@@ -37,6 +38,7 @@ def evaluate_freshness(
     snapshot: Mapping[str, object], as_of: datetime, root: Path | str
 ) -> FreshnessReport:
     """Evaluate snapshot provenance without executing or modifying evidence files."""
+    _validate_snapshot_provenance(snapshot)
     root_path = Path(root).resolve()
     records = [
         _evaluate_record(kind, key, properties, as_of, root_path)
@@ -46,6 +48,26 @@ def evaluate_freshness(
         as_of=as_of,
         records=tuple(sorted(records, key=lambda record: (str(record["kind"]), str(record["key"])))),
     )
+
+
+def _validate_snapshot_provenance(snapshot: Mapping[str, object]) -> None:
+    for collection in ("nodes", "relationships"):
+        records = snapshot.get(collection)
+        if not isinstance(records, list):
+            raise StructuredError("INVALID_KNOWLEDGE", "Knowledge snapshot records must be arrays")
+        for index, record in enumerate(records):
+            if not isinstance(record, Mapping):
+                raise StructuredError("INVALID_KNOWLEDGE", "Knowledge snapshot records must be objects")
+            properties = record.get("properties")
+            if not isinstance(properties, Mapping):
+                raise StructuredError("INVALID_KNOWLEDGE", "Knowledge snapshot record properties must be an object")
+            validate_provenance(
+                properties,
+                f"snapshot {'node' if collection == 'nodes' else 'relationship'} {index}",
+                allow_legacy_null_evidence=collection == "relationships" and properties.get("relation_type") in {
+                    "HAS_ARTIFACT", "HAS_FACT", "HAS_PROFILE", "EXPECTS_ARTIFACT"
+                },
+            )
 
 
 def _snapshot_records(snapshot: Mapping[str, object]) -> list[tuple[str, str, Mapping[str, object]]]:

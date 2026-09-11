@@ -447,5 +447,7 @@ def _artifact_from_row(row: sqlite3.Row) -> Artifact:
     return Artifact(
         id=row["id"], artifact_type=row["artifact_type"], title=row["title"],
         description=row["description"], path=row["path"], evidence=json.loads(row["evidence_json"]),
-        confidence=row["confidence"],
+        confidence=row["confidence"], source=row["source"], source_version=row["source_version"],
+        content_hash=row["content_hash"], observed_at=row["observed_at"],
+        valid_from=row["valid_from"], valid_until=row["valid_until"],
     )

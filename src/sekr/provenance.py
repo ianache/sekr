@@ -30,9 +30,8 @@ def validate_provenance(
         if value is None and field == "evidence" and allow_legacy_null_evidence:
             continue
         if field == "evidence":
-            valid_type = isinstance(value, str) or (
-                isinstance(value, (list, tuple))
-                and all(isinstance(reference, str) for reference in value)
+            valid_type = isinstance(value, (list, tuple)) and all(
+                isinstance(reference, str) for reference in value
             )
         else:
             valid_type = isinstance(value, str)

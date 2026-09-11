@@ -26,10 +26,15 @@ class KnowledgeCheckReport:
 
 def projection_to_snapshot(projection: GraphProjection) -> dict[str, object]:
     """Convert a validated graph projection to the canonical check format."""
+    optional_provenance = {"source", "evidence", "source_version", "content_hash", "observed_at", "valid_from", "valid_until"}
+
+    def snapshot_properties(properties: Mapping[str, object]) -> dict[str, object]:
+        return {key: value for key, value in properties.items() if not (key in optional_provenance and value is None)}
+
     nodes = (projection.dataset, *projection.nodes)
     return {
         "nodes": [
-            {"kind": node.kind, "key": node.key, "properties": dict(node.properties)}
+            {"kind": node.kind, "key": node.key, "properties": snapshot_properties(node.properties)}
             for node in nodes
         ],
         "relationships": [
@@ -39,7 +44,7 @@ def projection_to_snapshot(projection: GraphProjection) -> dict[str, object]:
                 "source_key": relationship.source_key,
                 "target_kind": relationship.target_kind,
                 "target_key": relationship.target_key,
-                "properties": dict(relationship.properties),
+                "properties": snapshot_properties(relationship.properties),
             }
             for relationship in projection.relationships
         ],
