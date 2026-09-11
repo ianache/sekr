@@ -66,6 +66,59 @@ def check_knowledge(current: Snapshot, baseline: Snapshot) -> KnowledgeCheckRepo
     return KnowledgeCheckReport(not issues and not has_diff, tuple(issues), diff)
 
 
+def evaluate_knowledge_policy(
+    report: KnowledgeCheckReport, policy: Mapping[str, object] | None = None
+) -> dict[str, object]:
+    """Return whether a report is permitted by a strict, report-only, or allowlist policy."""
+    policy = policy or {"mode": "strict"}
+    mode = policy.get("mode", "strict")
+    if mode not in {"strict", "report-only", "allowlist"}:
+        raise StructuredError("INVALID_POLICY", "Knowledge policy mode is invalid")
+    if mode == "report-only":
+        allowed = True
+        severity = _report_severity(report)
+    elif mode == "strict":
+        allowed = report.valid
+        severity = _report_severity(report)
+    else:
+        allowlist = policy.get("allowlist", {})
+        if not isinstance(allowlist, dict):
+            raise StructuredError("INVALID_POLICY", "Knowledge policy allowlist must be an object")
+        remaining = _unallowed_diff(report.diff, allowlist)
+        allowed = not report.issues and not any(
+            remaining[group][kind] for group in remaining for kind in remaining[group]
+        )
+        severity = "critical" if report.issues else ("warning" if not allowed else "none")
+    return {"mode": mode, "allowed": allowed, "severity": severity}
+
+
+def _report_severity(report: KnowledgeCheckReport) -> str:
+    if report.issues:
+        return "critical"
+    return "warning" if any(report.diff[group][kind] for group in report.diff for kind in report.diff[group]) else "none"
+
+
+def _unallowed_diff(
+    diff: dict[str, dict[str, list[dict[str, object]]]], allowlist: dict[str, object]
+) -> dict[str, dict[str, list[dict[str, object]]]]:
+    remaining: dict[str, dict[str, list[dict[str, object]]]] = {}
+    for group, categories in diff.items():
+        configured = allowlist.get(group, {})
+        if not isinstance(configured, dict):
+            raise StructuredError("INVALID_POLICY", "Knowledge policy allowlist entries must be objects")
+        remaining[group] = {}
+        for category, records in categories.items():
+            allowed = configured.get(category, [])
+            if not isinstance(allowed, list):
+                raise StructuredError("INVALID_POLICY", "Knowledge policy allowlist records must be arrays")
+            allowed_keys = {_canonical(record) for record in allowed}
+            remaining[group][category] = [
+                record for record in records
+                if _canonical(record) not in allowed_keys
+            ]
+    return remaining
+
+
 def _snapshot_records(
     snapshot: Snapshot, label: str
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:

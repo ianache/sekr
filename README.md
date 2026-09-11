@@ -142,6 +142,11 @@ It compares the input with `data/knowledge-baseline.json` and publishes
 `SEKR_KNOWLEDGE_INPUT` and `SEKR_KNOWLEDGE_BASELINE` as CI/CD variables when
 using a different project or environment baseline.
 
+The enforcement policy is stored in `.sekr/knowledge-policy.json`. Its
+default `strict` mode blocks all drift. `report-only` preserves the report but
+allows the job to succeed, while `allowlist` permits only exact records listed
+under `allowlist.nodes` or `allowlist.relationships`.
+
 Evaluation output reports precision at K, critical recall, context size, false-positive rate and IDs, plus reproducibility. It never emits the oracle itself.
 
 The candidate universe is **all artifacts in the validated dataset**, including artifacts retrieval does not return. Oracle expected IDs define the positives; all remaining dataset IDs are negatives. `falsePositiveRate = FP / (FP + TN)`, with 0.0 defined when there are no negative candidates. `candidateCount` reports the universe size; `trueNegativeCount` reports negatives not selected. Oracle IDs must belong to the dataset, and critical IDs must be expected IDs. Precision is selected positives / selected items; critical recall is selected critical IDs / all critical IDs; either is 0.0 for an empty denominator.

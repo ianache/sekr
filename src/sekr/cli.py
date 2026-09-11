@@ -15,6 +15,7 @@ from sekr.ingest import build_graph_projection
 from sekr.knowledge_check import (
     build_knowledge_snapshot,
     check_knowledge,
+    evaluate_knowledge_policy,
     projection_to_snapshot,
 )
 from sekr.neo4j import write_projection
@@ -88,6 +89,7 @@ def _build_parser() -> _Parser:
     knowledge_check = commands.add_parser("knowledge-check")
     knowledge_check.add_argument("--input", required=True, metavar="PATH")
     knowledge_check.add_argument("--baseline", required=True, metavar="PATH")
+    knowledge_check.add_argument("--policy", metavar="PATH")
     knowledge_check.add_argument("--output", metavar="PATH")
 
     knowledge_snapshot = commands.add_parser("knowledge-snapshot")
@@ -153,7 +155,12 @@ def _dispatch(arguments: argparse.Namespace) -> dict[str, object]:
     if arguments.command == "knowledge-check":
         current = _read_knowledge(arguments.input)
         baseline = _read_knowledge(arguments.baseline)
-        return check_knowledge(current, baseline).to_dict()
+        report = check_knowledge(current, baseline)
+        payload = report.to_dict()
+        payload["policy"] = evaluate_knowledge_policy(
+            report, _read_policy(arguments.policy) if arguments.policy else None
+        )
+        return payload
 
     if arguments.command == "knowledge-snapshot":
         return build_knowledge_snapshot(arguments.input)
@@ -251,6 +258,18 @@ def _read_knowledge(path: str | Path) -> dict[str, object]:
     raise StructuredError("INVALID_KNOWLEDGE", "Knowledge JSON must be an object")
 
 
+def _read_policy(path: str | Path) -> dict[str, object]:
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise StructuredError(
+            "INVALID_POLICY", "Knowledge policy JSON could not be read", {"error": str(error)}
+        ) from error
+    if not isinstance(data, dict):
+        raise StructuredError("INVALID_POLICY", "Knowledge policy JSON must be an object")
+    return data
+
+
 def _write_knowledge_output(path: str, payload: dict[str, object]) -> None:
     try:
         Path(path).write_bytes(_serialize(payload))
@@ -287,7 +306,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             _write_snapshot_output(arguments.output, payload)
         else:
             _emit(payload)
-        return 0 if arguments.command != "knowledge-check" or payload["valid"] else 1
+        if arguments.command == "knowledge-check":
+            return 0 if payload["policy"]["allowed"] else 1
+        return 0
     except StructuredError as error:
         _emit({"error": error.to_dict()})
         return 1

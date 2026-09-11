@@ -481,3 +481,21 @@ def test_knowledge_snapshot_writes_canonical_baseline(tmp_path, runner):
     payload = json.loads(output.read_text(encoding="utf-8"))
     assert payload["nodes"][0]["kind"] == "Dataset"
     assert payload["relationships"]
+
+
+def test_knowledge_check_report_only_policy_returns_success_for_drift(tmp_path, runner):
+    current = tmp_path / "current.json"
+    baseline = tmp_path / "baseline.json"
+    policy = tmp_path / "policy.json"
+    current.write_text(json.dumps({"nodes": [{"kind": "Fact", "key": "new", "properties": {}}],
+                                   "relationships": []}), encoding="utf-8")
+    baseline.write_text(json.dumps({"nodes": [], "relationships": []}), encoding="utf-8")
+    policy.write_text(json.dumps({"mode": "report-only"}), encoding="utf-8")
+
+    result = runner("knowledge-check", "--input", str(current), "--baseline", str(baseline),
+                    "--policy", str(policy))
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["valid"] is False
+    assert payload["policy"] == {"mode": "report-only", "allowed": True, "severity": "warning"}

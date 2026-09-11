@@ -4,7 +4,12 @@ from sekr.errors import StructuredError
 from pathlib import Path
 
 from sekr.ingest import build_graph_projection
-from sekr.knowledge_check import build_knowledge_snapshot, check_knowledge, projection_to_snapshot
+from sekr.knowledge_check import (
+    build_knowledge_snapshot,
+    check_knowledge,
+    evaluate_knowledge_policy,
+    projection_to_snapshot,
+)
 
 
 def _snapshot(nodes=(), relationships=()):
@@ -126,3 +131,30 @@ def test_build_knowledge_snapshot_matches_projection_and_is_deterministic():
     assert snapshot == projection_to_snapshot(build_graph_projection(dataset))
     assert snapshot == build_knowledge_snapshot(dataset)
     assert snapshot["nodes"][0]["kind"] == "Dataset"
+
+
+def test_strict_policy_blocks_drift_and_classifies_it_as_warning():
+    report = check_knowledge(_snapshot([_node("Fact", "new")]), _snapshot())
+
+    assert evaluate_knowledge_policy(report, {"mode": "strict"}) == {
+        "mode": "strict", "allowed": False, "severity": "warning"
+    }
+
+
+def test_report_only_policy_allows_invalid_knowledge_without_hiding_report():
+    report = check_knowledge(_snapshot([_node("Fact", "new")]), _snapshot())
+
+    assert report.valid is False
+    assert evaluate_knowledge_policy(report, {"mode": "report-only"}) == {
+        "mode": "report-only", "allowed": True, "severity": "warning"
+    }
+
+
+def test_allowlist_policy_allows_exact_declared_drift():
+    current = _snapshot([_node("Fact", "new")])
+    report = check_knowledge(current, _snapshot())
+
+    assert evaluate_knowledge_policy(report, {
+        "mode": "allowlist",
+        "allowlist": {"nodes": {"added": [_node("Fact", "new")]}}
+    }) == {"mode": "allowlist", "allowed": True, "severity": "none"}
