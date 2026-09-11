@@ -699,6 +699,28 @@ def test_knowledge_freshness_rejects_existing_dataset_source_output(tmp_path, ru
     assert json.loads(result.stdout)["error"]["code"] == "KNOWLEDGE_OUTPUT_ERROR"
 
 
+def test_knowledge_freshness_rejects_hardlink_alias_to_source_with_different_suffix(tmp_path, runner):
+    source = tmp_path / "source.json"
+    source.write_text(json.dumps({
+        "metadata": {"version": "v", "source_commit": "c", "generated_at": "now"},
+        "artifacts": [], "relations": [], "facts": [], "task_profiles": [],
+    }), encoding="utf-8")
+    output = tmp_path / "report.output"
+    os.link(source, output)
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text(json.dumps({"nodes": [], "relationships": []}), encoding="utf-8")
+    original = source.read_bytes()
+
+    result = runner(
+        "knowledge-freshness", "--input", str(snapshot), "--as-of", "2026-09-11T00:00:00Z",
+        "--output", str(output), cwd=Path(__file__).parent.parent.parent,
+    )
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["error"]["code"] == "KNOWLEDGE_OUTPUT_ERROR"
+    assert source.read_bytes() == original
+
+
 def test_knowledge_freshness_reports_invalid_snapshot_structure(tmp_path, runner):
     source = tmp_path / "invalid.json"
     source.write_text(json.dumps({"nodes": [{}], "relationships": []}), encoding="utf-8")

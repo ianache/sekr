@@ -400,8 +400,6 @@ def _is_sqlite_file(path: Path) -> bool:
 
 
 def _is_knowledge_source(path: Path) -> bool:
-    if path.suffix.lower() not in {".json", ".jsonl"}:
-        return False
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
