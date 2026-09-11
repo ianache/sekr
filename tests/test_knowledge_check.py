@@ -65,6 +65,35 @@ def test_knowledge_check_accepts_valid_provenance_fields():
     assert check_knowledge(snapshot, snapshot).valid is True
 
 
+@pytest.mark.parametrize("field", ("source", "evidence", "source_version", "content_hash", "observed_at", "valid_from", "valid_until"))
+def test_knowledge_check_rejects_explicit_null_provenance(field):
+    record = _node("Fact", "fact-a", **{field: None})
+
+    with pytest.raises(StructuredError) as error:
+        check_knowledge(_snapshot([record]), _snapshot())
+
+    assert error.value.code == ("INVALID_EVIDENCE" if field == "evidence" else "INVALID_PROVENANCE")
+    assert error.value.details == {"field": field, "record": "current node 0"}
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "2026-09-11 00:00:00Z",
+        "2026-09-11T00:00Z",
+        "2026-09-11T00:00:00+01:00",
+    ),
+)
+def test_knowledge_check_rejects_non_strict_utc_timestamps(value):
+    record = _node("Fact", "fact-a", observed_at=value)
+
+    with pytest.raises(StructuredError) as error:
+        check_knowledge(_snapshot([record]), _snapshot())
+
+    assert error.value.code == "INVALID_PROVENANCE"
+    assert error.value.details == {"field": "observed_at", "record": "current node 0"}
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -83,7 +112,7 @@ def test_knowledge_check_rejects_malformed_provenance(field, value):
     with pytest.raises(StructuredError) as error:
         check_knowledge(_snapshot([record]), _snapshot())
 
-    assert error.value.code == "INVALID_PROVENANCE"
+    assert error.value.code == ("INVALID_EVIDENCE" if field == "evidence" else "INVALID_PROVENANCE")
     assert error.value.details == {"field": field, "record": "current node 0"}
 
 

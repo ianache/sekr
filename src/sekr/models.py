@@ -4,6 +4,7 @@ from dataclasses import dataclass, fields, is_dataclass
 from typing import Any, Literal, Mapping, Sequence
 
 from sekr.errors import StructuredError
+from sekr.provenance import validate_provenance
 
 
 Confidence = Literal[
@@ -103,9 +104,19 @@ class Artifact(_Serializable):
     path: str | None = None
     evidence: Sequence[str] = ()
     confidence: Confidence = "UNKNOWN"
+    source: str = ""
+    source_version: str = ""
+    content_hash: str | None = None
+    observed_at: str | None = None
+    valid_from: str | None = None
+    valid_until: str | None = None
 
     def __post_init__(self) -> None:
         _validate_artifact_type(self.artifact_type)
+        validate_provenance(
+            {field: getattr(self, field) for field in ("source", "evidence", "source_version", "content_hash", "observed_at", "valid_from", "valid_until") if getattr(self, field) is not None},
+            f"artifact {self.id}",
+        )
         object.__setattr__(
             self, "confidence", _normalize_confidence(self.confidence, self.evidence)
         )
@@ -119,8 +130,18 @@ class Relation(_Serializable):
     relation_type: str
     evidence: Sequence[str] = ()
     confidence: Confidence = "UNKNOWN"
+    source: str = ""
+    source_version: str = ""
+    content_hash: str | None = None
+    observed_at: str | None = None
+    valid_from: str | None = None
+    valid_until: str | None = None
 
     def __post_init__(self) -> None:
+        validate_provenance(
+            {field: getattr(self, field) for field in ("source", "evidence", "source_version", "content_hash", "observed_at", "valid_from", "valid_until") if getattr(self, field) is not None},
+            f"relation {self.id}",
+        )
         object.__setattr__(
             self, "confidence", _normalize_confidence(self.confidence, self.evidence)
         )
@@ -136,10 +157,17 @@ class KnowledgeFact(_Serializable):
     freshness: str | None = None
     source_version: str = ""
     valid_from: str | None = None
+    content_hash: str | None = None
+    observed_at: str | None = None
+    valid_until: str | None = None
     scope: str = ""
     owner: str | None = None
 
     def __post_init__(self) -> None:
+        validate_provenance(
+            {field: getattr(self, field) for field in ("source", "evidence", "source_version", "content_hash", "observed_at", "valid_from", "valid_until") if getattr(self, field) is not None},
+            f"fact {self.id}",
+        )
         object.__setattr__(
             self, "confidence", _normalize_confidence(self.confidence, self.evidence)
         )

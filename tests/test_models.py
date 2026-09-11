@@ -1,7 +1,7 @@
 import pytest
 
 from sekr.errors import StructuredError
-from sekr.models import Artifact, ContextItem, ContextPackage, TaskProfile
+from sekr.models import Artifact, ContextItem, ContextPackage, Relation, TaskProfile
 
 
 def test_context_item_serializes_provenance_and_reason():
@@ -48,6 +48,28 @@ def test_invalid_confidence_is_rejected_with_structured_error():
         )
 
     assert error.value.code == "INVALID_CONFIDENCE"
+
+
+def test_models_validate_present_provenance_values():
+    with pytest.raises(StructuredError) as error:
+        Artifact(
+            id="artifact.bad-provenance",
+            artifact_type="document",
+            title="Bad",
+            content_hash="sha256:" + "A" * 64,
+        )
+    assert error.value.code == "INVALID_PROVENANCE"
+
+    relation = Relation(
+        id="relation.provenance",
+        source_id="a",
+        target_id="b",
+        relation_type="uses",
+        source="ADR 004",
+        content_hash="sha256:" + "a" * 64,
+        observed_at="2026-09-11T00:00:00Z",
+    )
+    assert relation.content_hash.startswith("sha256:")
 
 
 def test_evidence_free_verified_confidence_is_normalized_to_unknown():

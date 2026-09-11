@@ -3,21 +3,15 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, Mapping
 
 from sekr.errors import StructuredError
 from sekr.ingest import GraphProjection
+from sekr.provenance import validate_provenance
 
 
 Snapshot = Mapping[str, object]
-_PROVENANCE_FIELDS = (
-    "source", "evidence", "source_version", "content_hash",
-    "observed_at", "valid_from", "valid_until",
-)
-_CONTENT_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -147,7 +141,7 @@ def _snapshot_records(
             raise StructuredError("INVALID_KNOWLEDGE", f"{label.capitalize()} node key must be a non-empty string")
         if not isinstance(node["properties"], dict):
             raise StructuredError("INVALID_KNOWLEDGE", f"{label.capitalize()} node properties must be an object")
-        _validate_provenance(node["properties"], f"{label} node {index}")
+        validate_provenance(node["properties"], f"{label} node {index}")
     for index, relationship in enumerate(relationships):
         _require_fields(
             relationship,
@@ -159,44 +153,13 @@ def _snapshot_records(
                 raise StructuredError("INVALID_KNOWLEDGE", f"{label.capitalize()} relationship {field} must be a non-empty string")
         if not isinstance(relationship["properties"], dict):
             raise StructuredError("INVALID_KNOWLEDGE", f"{label.capitalize()} relationship properties must be an object")
-        _validate_provenance(relationship["properties"], f"{label} relationship {index}")
+        validate_provenance(
+            relationship["properties"],
+            f"{label} relationship {index}",
+            allow_legacy_null_evidence=relationship["properties"].get("relation_type")
+            in {"HAS_ARTIFACT", "HAS_FACT", "HAS_PROFILE", "EXPECTS_ARTIFACT"},
+        )
     return list(nodes), list(relationships)
-
-
-def _validate_provenance(properties: Mapping[str, object], record: str) -> None:
-    for field in _PROVENANCE_FIELDS:
-        if field not in properties or properties[field] is None:
-            continue
-        value = properties[field]
-        if field == "evidence":
-            valid_type = isinstance(value, str) or (
-                isinstance(value, (list, tuple))
-                and all(isinstance(reference, str) for reference in value)
-            )
-        else:
-            valid_type = isinstance(value, str)
-        if not valid_type:
-            raise _invalid_provenance(field, record)
-        if field == "content_hash" and not _CONTENT_HASH.fullmatch(value):
-            raise _invalid_provenance(field, record)
-        if field in {"observed_at", "valid_from", "valid_until"} and not _is_utc_compatible(value):
-            raise _invalid_provenance(field, record)
-
-
-def _is_utc_compatible(value: str) -> bool:
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    return parsed.tzinfo is not None
-
-
-def _invalid_provenance(field: str, record: str) -> StructuredError:
-    return StructuredError(
-        "INVALID_PROVENANCE",
-        "Provenance field is malformed",
-        {"field": field, "record": record},
-    )
 
 
 def _require_fields(record: Mapping[str, object], fields: tuple[str, ...], label: str) -> None:

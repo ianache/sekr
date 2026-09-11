@@ -40,6 +40,38 @@ def test_load_and_validate_curated_dataset(tmp_path):
     assert result.artifact_count >= 8
 
 
+def test_load_and_validate_preserves_provenance_on_all_stored_record_types(tmp_path):
+    dataset = curated_dataset()
+    provenance = {
+        "source": "ADR 004",
+        "evidence": ["docs/adr.md:1-2"],
+        "source_version": "0.1",
+        "content_hash": "sha256:" + "a" * 64,
+        "observed_at": "2026-09-11T00:00:00Z",
+        "valid_from": "2026-09-01T00:00:00Z",
+        "valid_until": "2026-09-30T00:00:00Z",
+    }
+    dataset["artifacts"][0].update(provenance)
+    dataset["facts"][0].update(provenance)
+    dataset["relations"][0].update(provenance)
+    db_path = tmp_path / "knowledge.sqlite"
+
+    load_dataset(db_path, write_dataset(tmp_path, dataset))
+
+    assert validate_dataset(db_path).valid is True
+    with sqlite3.connect(db_path) as connection:
+        for table, identifier in (
+            ("artifacts", dataset["artifacts"][0]["id"]),
+            ("facts", dataset["facts"][0]["id"]),
+            ("relations", dataset["relations"][0]["id"]),
+        ):
+            row = connection.execute(
+                f"SELECT source, source_version, content_hash, observed_at, valid_from, valid_until FROM {table} WHERE id = ?",
+                (identifier,),
+            ).fetchone()
+            assert row == tuple(provenance[field] if field != "evidence" else None for field in ("source", "source_version", "content_hash", "observed_at", "valid_from", "valid_until"))
+
+
 def test_search_returns_service_query_and_test_candidates(tmp_path):
     db_path = seeded_db(tmp_path)
     candidates = KnowledgeRepository(db_path).search_candidates(

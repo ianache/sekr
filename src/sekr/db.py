@@ -11,6 +11,7 @@ from typing import Iterable, Iterator, Sequence
 
 from sekr.errors import StructuredError
 from sekr.models import Artifact, DatasetMetadata, KnowledgeFact, Relation, TaskProfile
+from sekr.provenance import PROVENANCE_FIELDS, validate_provenance
 
 
 _ARTIFACT_TYPES = (
@@ -30,11 +31,11 @@ _CONFIDENCES = ("VERIFIED", "APPROVED", "INFERRED", "STALE", "CONFLICTED", "UNKN
 _TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 _ALLOWED_FIELDS = {
     "metadata": {"version", "source_commit", "generated_at", "description"},
-    "artifacts": {"id", "artifact_type", "title", "description", "path", "evidence", "confidence"},
-    "relations": {"id", "source_id", "target_id", "relation_type", "evidence", "confidence"},
+    "artifacts": {"id", "artifact_type", "title", "description", "path", "evidence", "confidence", *PROVENANCE_FIELDS},
+    "relations": {"id", "source_id", "target_id", "relation_type", "evidence", "confidence", *PROVENANCE_FIELDS},
     "facts": {
         "id", "artifact_id", "statement", "source", "evidence", "confidence",
-        "freshness", "source_version", "valid_from", "scope", "owner",
+        "freshness", "source_version", "valid_from", "scope", "owner", "content_hash", "observed_at", "valid_until",
     },
     "task_profiles": {"id", "name", "terms", "expected_artifact_types", "expected_artifacts"},
 }
@@ -92,6 +93,12 @@ def init_db(path: str | Path) -> None:
                 path TEXT,
                 evidence_json TEXT NOT NULL,
                 confidence TEXT NOT NULL CHECK (confidence IN ({confidences})),
+                source TEXT NOT NULL DEFAULT '',
+                source_version TEXT NOT NULL DEFAULT '',
+                content_hash TEXT,
+                observed_at TEXT,
+                valid_from TEXT,
+                valid_until TEXT,
                 CHECK (confidence IN ('UNKNOWN', 'CONFLICTED') OR evidence_json <> '[]')
             );
             CREATE TABLE IF NOT EXISTS relations (
@@ -101,6 +108,12 @@ def init_db(path: str | Path) -> None:
                 relation_type TEXT NOT NULL,
                 evidence_json TEXT NOT NULL,
                 confidence TEXT NOT NULL CHECK (confidence IN ({confidences})),
+                source TEXT NOT NULL DEFAULT '',
+                source_version TEXT NOT NULL DEFAULT '',
+                content_hash TEXT,
+                observed_at TEXT,
+                valid_from TEXT,
+                valid_until TEXT,
                 CHECK (confidence IN ('UNKNOWN', 'CONFLICTED') OR evidence_json <> '[]')
             );
             CREATE TABLE IF NOT EXISTS facts (
@@ -115,6 +128,9 @@ def init_db(path: str | Path) -> None:
                 valid_from TEXT,
                 scope TEXT NOT NULL DEFAULT '',
                 owner TEXT,
+                content_hash TEXT,
+                observed_at TEXT,
+                valid_until TEXT,
                 CHECK (confidence IN ('UNKNOWN', 'CONFLICTED') OR evidence_json <> '[]')
             );
             CREATE TABLE IF NOT EXISTS task_profiles (
@@ -132,6 +148,15 @@ def init_db(path: str | Path) -> None:
             );
             """
         )
+        for table, columns in {
+            "artifacts": ("source", "source_version", "content_hash", "observed_at", "valid_from", "valid_until"),
+            "relations": ("source", "source_version", "content_hash", "observed_at", "valid_from", "valid_until"),
+            "facts": ("content_hash", "observed_at", "valid_until"),
+        }.items():
+            existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+            for column in columns:
+                if column not in existing:
+                    connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
 
 
 def _read_dataset(dataset_json: str | Path) -> dict[str, object]:
@@ -194,6 +219,8 @@ def _validate_raw_dataset(data: dict[str, object]) -> None:
             raise StructuredError("INVALID_DATASET", f"{collection} must be a list")
         for record in data[collection]:
             record = _require_known_fields(record, collection, record.get("id") if isinstance(record, dict) else None)
+            if collection in {"artifacts", "relations", "facts"}:
+                validate_provenance(record, f"{collection[:-1]} {record.get('id', '<unknown>')}")
             for field in fields:
                 _require_text(record.get(field), field, "INVALID_DATASET", record.get("id"))
             if collection in {"artifacts", "relations", "facts"}:
@@ -290,16 +317,16 @@ def load_dataset(path: str | Path, dataset_json: str | Path) -> None:
             connection.execute("DELETE FROM artifacts")
             connection.execute("DELETE FROM dataset_metadata")
             connection.executemany(
-                "INSERT INTO artifacts VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [(item.id, item.artifact_type, item.title, item.description, item.path, json.dumps(list(item.evidence)), item.confidence) for item in artifacts],
+                "INSERT INTO artifacts (id, artifact_type, title, description, path, evidence_json, confidence, source, source_version, content_hash, observed_at, valid_from, valid_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(item.id, item.artifact_type, item.title, item.description, item.path, json.dumps(list(item.evidence)), item.confidence, item.source, item.source_version, item.content_hash, item.observed_at, item.valid_from, item.valid_until) for item in artifacts],
             )
             connection.executemany(
-                "INSERT INTO relations VALUES (?, ?, ?, ?, ?, ?)",
-                [(item.id, item.source_id, item.target_id, item.relation_type, json.dumps(list(item.evidence)), item.confidence) for item in relations],
+                "INSERT INTO relations (id, source_id, target_id, relation_type, evidence_json, confidence, source, source_version, content_hash, observed_at, valid_from, valid_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(item.id, item.source_id, item.target_id, item.relation_type, json.dumps(list(item.evidence)), item.confidence, item.source, item.source_version, item.content_hash, item.observed_at, item.valid_from, item.valid_until) for item in relations],
             )
             connection.executemany(
-                "INSERT INTO facts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [(item.id, record.get("artifact_id"), item.statement, item.source, json.dumps(list(item.evidence)), item.confidence, item.freshness, item.source_version, item.valid_from, item.scope, item.owner) for item, record in zip(facts, fact_records, strict=True)],
+                "INSERT INTO facts (id, artifact_id, statement, source, evidence_json, confidence, freshness, source_version, valid_from, scope, owner, content_hash, observed_at, valid_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(item.id, record.get("artifact_id"), item.statement, item.source, json.dumps(list(item.evidence)), item.confidence, item.freshness, item.source_version, item.valid_from, item.scope, item.owner, item.content_hash, item.observed_at, item.valid_until) for item, record in zip(facts, fact_records, strict=True)],
             )
             connection.executemany(
                 "INSERT INTO task_profiles VALUES (?, ?, ?, ?, ?)",
@@ -327,6 +354,10 @@ def validate_dataset(path: str | Path) -> ValidationResult:
                 records = []
                 for row in connection.execute(f"SELECT * FROM {table} ORDER BY id"):
                     record = dict(row)
+                    if table in {"artifacts", "relations", "facts"}:
+                        for field in PROVENANCE_FIELDS:
+                            if record.get(field) is None:
+                                record.pop(field, None)
                     for field in tuple(record):
                         if field.endswith("_json"):
                             try:

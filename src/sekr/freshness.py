@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping
 
+from sekr.provenance import is_strict_utc_timestamp
+
 
 _STATES = ("conflicted", "unverified", "changed", "stale", "current")
 
@@ -156,7 +158,7 @@ def _hash_file(path: Path) -> str | None:
 
 
 def _parse_datetime(value: object) -> datetime | None:
-    if not isinstance(value, str):
+    if not is_strict_utc_timestamp(value):
         return None
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))

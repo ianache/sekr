@@ -114,6 +114,46 @@ def test_projection_preserves_metadata_profile_fact_and_optional_properties(tmp_
     assert artifact.properties["path"] is None
 
 
+def test_projection_carries_provenance_on_artifact_fact_and_relation(tmp_path):
+    data = json.loads(DATASET.read_text(encoding="utf-8"))
+    provenance = {
+        "source": "ADR 004",
+        "evidence": ["docs/adr.md:1-2"],
+        "source_version": "0.1",
+        "content_hash": "sha256:" + "a" * 64,
+        "observed_at": "2026-09-11T00:00:00Z",
+        "valid_from": "2026-09-01T00:00:00Z",
+        "valid_until": "2026-09-30T00:00:00Z",
+    }
+    data["artifacts"][0].update(provenance)
+    data["facts"][0].update(provenance)
+    data["relations"][0].update(provenance)
+    source = tmp_path / "provenance.json"
+    source.write_text(json.dumps(data), encoding="utf-8")
+
+    projection = build_graph_projection(source)
+    artifact = next(node for node in projection.nodes if node.key == data["artifacts"][0]["id"])
+    fact = next(node for node in projection.nodes if node.key == data["facts"][0]["id"])
+    relation = next(edge for edge in projection.relationships if edge.key == data["relations"][0]["id"])
+
+    for record in (artifact, fact, relation):
+        assert {field: record.properties[field] for field in provenance} == provenance
+
+
+@pytest.mark.parametrize("field", ("source", "source_version", "content_hash", "observed_at", "valid_from", "valid_until"))
+def test_projection_rejects_explicit_null_scalar_provenance(tmp_path, field):
+    data = json.loads(DATASET.read_text(encoding="utf-8"))
+    data["artifacts"][0][field] = None
+    source = tmp_path / f"invalid-{field}.json"
+    source.write_text(json.dumps(data), encoding="utf-8")
+
+    with pytest.raises(StructuredError) as error:
+        build_graph_projection(source)
+
+    assert error.value.code == "INVALID_PROVENANCE"
+    assert error.value.details["field"] == field
+
+
 @pytest.mark.parametrize("collection", ("artifacts", "relations", "facts", "task_profiles"))
 def test_projection_rejects_duplicate_record_ids_before_projection(tmp_path, collection):
     """Catches JSON duplicate IDs that SQLite primary keys would reject."""
