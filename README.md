@@ -142,6 +142,13 @@ It compares the input with `data/knowledge-baseline.json` and publishes
 `SEKR_KNOWLEDGE_INPUT` and `SEKR_KNOWLEDGE_BASELINE` as CI/CD variables when
 using a different project or environment baseline.
 
+The GitLab workflow runs the blocking check only for Merge Request pipelines
+and the default branch. The `knowledge-baseline-propose` job is manual and
+non-blocking: it writes `.sekr/proposed-knowledge-baseline.json` as an
+artifact and never overwrites `data/knowledge-baseline.json`. To approve a
+change, review the artifact, replace the versioned baseline in a separate
+commit, and let the blocking check validate that commit.
+
 The enforcement policy is stored in `.sekr/knowledge-policy.json`. Its
 default `strict` mode blocks all drift. `report-only` preserves the report but
 allows the job to succeed, while `allowlist` permits only exact records listed
