@@ -100,6 +100,8 @@ def _record_state(
     if any(digest != content_hash for digest in hashes):
         return "changed", ["CONTENT_HASH_MISMATCH"]
 
+    if properties.get("confidence") == "STALE":
+        return "stale", ["EXPLICIT_STALE"]
     if valid_until is not None and valid_until < _utc(as_of):
         return "stale", ["VALIDITY_EXPIRED"]
     if valid_from is not None and valid_from > _utc(as_of):
@@ -122,7 +124,7 @@ def _evidence_files(value: object, root: Path) -> tuple[Path, ...] | None:
 
 
 def _resolve_evidence(reference: str, root: Path) -> Path | None:
-    candidate = Path(reference)
+    candidate = Path(_evidence_path(reference))
     if candidate.is_absolute():
         return None
     try:
@@ -131,6 +133,19 @@ def _resolve_evidence(reference: str, root: Path) -> Path | None:
     except (OSError, ValueError):
         return None
     return resolved
+
+
+def _evidence_path(reference: str) -> str:
+    """Return the file component of a path or terminal ``:start-end`` reference."""
+    path, separator, line_range = reference.rpartition(":")
+    if separator and path and _is_line_range(line_range):
+        return path
+    return reference
+
+
+def _is_line_range(value: str) -> bool:
+    start, separator, end = value.partition("-")
+    return bool(separator and start and end and start.isdecimal() and end.isdecimal())
 
 
 def _hash_file(path: Path) -> str | None:

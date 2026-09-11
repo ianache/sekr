@@ -124,6 +124,51 @@ def test_evaluate_freshness_marks_incompatible_dates_conflicted_and_confines_evi
     )
 
 
+def test_evaluate_freshness_marks_explicit_stale_confidence_stale_when_hash_matches(tmp_path):
+    """Removing explicit stale handling must not classify matching evidence as current."""
+    (tmp_path / "source.md").write_bytes(b"matching evidence")
+    snapshot = {
+        "nodes": [
+            {
+                "kind": "Fact",
+                "key": "explicit-stale",
+                "properties": {
+                    "confidence": "STALE",
+                    "evidence": ["source.md"],
+                    "content_hash": _hash(b"matching evidence"),
+                },
+            }
+        ],
+        "relationships": [],
+    }
+
+    report = evaluate_freshness(snapshot, AS_OF, tmp_path)
+
+    assert report.records[0]["state"] == "stale"
+
+
+def test_evaluate_freshness_hashes_line_range_evidence_reference(tmp_path):
+    """Passing a line-range reference unchanged must not make readable evidence unverified."""
+    (tmp_path / "source.md").write_bytes(b"line-range evidence")
+    snapshot = {
+        "nodes": [
+            {
+                "kind": "Fact",
+                "key": "line-range-evidence",
+                "properties": {
+                    "evidence": ["source.md:1-1"],
+                    "content_hash": _hash(b"line-range evidence"),
+                },
+            }
+        ],
+        "relationships": [],
+    }
+
+    report = evaluate_freshness(snapshot, AS_OF, tmp_path)
+
+    assert report.records[0]["state"] == "current"
+
+
 def test_evaluate_freshness_is_deterministic_and_sorts_node_and_relationship_records(tmp_path):
     """Changing record sort order or repeatability must fail this report comparison."""
     (tmp_path / "evidence.md").write_bytes(b"evidence")
