@@ -599,10 +599,9 @@ def test_impact_comprehension_walrus_shadows_enclosing_function(expression, loca
     )
     visitor.visit(ast.parse(code))
 
-    assert [edge.to_dict() for edge in sorted(visitor.edges) if edge.relation == "calls"] == [
-        {"source": "sibling", "target": "target.py:refresh",
-         "relation": "calls", "path": "consumer.py"},
-    ]
+    callers = [edge.source for edge in sorted(visitor.edges) if edge.relation == "calls"]
+    expected = ["sibling", "use"] if local_import and expression.startswith("((") else ["sibling"]
+    assert callers == expected
 
 
 @pytest.mark.parametrize("expression, callers", [
@@ -620,6 +619,23 @@ def test_impact_comprehension_walrus_has_lexical_scope(expression, callers):
     ))
 
     assert sorted(edge.source for edge in visitor.edges if edge.relation == "calls") == callers
+
+
+def test_impact_generator_walrus_does_not_shadow_until_generator_runs():
+    visitor = _ImpactVisitor(
+        "consumer.py", [Symbol("target.py", "refresh", "function", "()")]
+    )
+    visitor.visit(ast.parse(
+        "def use():\n"
+        "    from target import refresh\n"
+        "    pending = ((refresh := replacement) for item in items)\n"
+        "    refresh()\n"
+    ))
+
+    assert [edge.to_dict() for edge in sorted(visitor.edges) if edge.relation == "calls"] == [
+        {"source": "use", "target": "target.py:refresh",
+         "relation": "calls", "path": "consumer.py"},
+    ]
 
 
 @pytest.mark.parametrize("decorator, parameters, receiver, resolves", [
@@ -659,6 +675,28 @@ def test_impact_only_infers_conventional_method_receivers(
         {"source": "Consumer.use", "target": "consumer.py:Consumer.refresh",
          "relation": "calls", "path": "consumer.py"},
     ] if resolves else [])
+
+
+@pytest.mark.parametrize("alias, decorator, parameter", [
+    ("cm", "classmethod", "cls"),
+    ("sm", "staticmethod", "self"),
+])
+def test_impact_resolves_aliased_builtin_method_decorators(alias, decorator, parameter):
+    visitor = _ImpactVisitor(
+        "consumer.py", [Symbol("consumer.py", "Consumer.refresh", "function", "()")]
+    )
+    visitor.visit(ast.parse(
+        f"from builtins import {decorator} as {alias}\n"
+        "class Consumer:\n"
+        f"    @{alias}\n"
+        f"    def use({parameter}):\n"
+        f"        {parameter}.refresh()\n"
+    ))
+
+    assert [edge.to_dict() for edge in sorted(visitor.edges)] == ([
+        {"source": "Consumer.use", "target": "consumer.py:Consumer.refresh",
+         "relation": "calls", "path": "consumer.py"},
+    ] if decorator == "classmethod" else [])
 
 
 def test_impact_does_not_infer_receivers_from_method_locals_or_nested_parameters():

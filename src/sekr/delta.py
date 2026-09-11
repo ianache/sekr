@@ -228,6 +228,7 @@ class _ImpactVisitor(ast.NodeVisitor):
         self.names: list[str] = []
         # None marks a binding whose value is unknown, blocking outer aliases.
         self.scopes: list[tuple[str, dict[str, str | None]]] = [("module", {})]
+        self._deferred_generator_depth = 0
         self.targets: dict[str, list[str]] = {}
         for target in targets:
             qualified_target = f"{_module_name(target.path)}.{target.qualified_name}"
@@ -292,10 +293,11 @@ class _ImpactVisitor(ast.NodeVisitor):
         # A walrus escapes all enclosing comprehension scopes, but stops at
         # a real function/lambda or module. Function scopes are analysis-local
         # snapshots, preserving global/nonlocal isolation from sibling bodies.
-        for kind, bindings in reversed(self.scopes):
-            if kind != "comprehension":
-                bindings[node.target.id] = None
-                break
+        if not self._deferred_generator_depth:
+            for kind, bindings in reversed(self.scopes):
+                if kind != "comprehension":
+                    bindings[node.target.id] = None
+                    break
 
     def visit_For(self, node: ast.For | ast.AsyncFor) -> None:
         self.visit(node.iter)
@@ -350,14 +352,16 @@ class _ImpactVisitor(ast.NodeVisitor):
                     None,
                 )
             if enclosing[-1][0] == "class":
-                decorators = {_call_name(item) for item in node.decorator_list}
+                decorators = {
+                    self._resolve_decorator_name(item) for item in node.decorator_list
+                }
                 positional = [*node.args.posonlyargs, *node.args.args]
                 receiver = (
-                    "cls" if decorators & {"classmethod", "builtins.classmethod"}
+                    "cls" if "builtins.classmethod" in decorators
                     else "self"
                 )
                 if (
-                    not decorators & {"staticmethod", "builtins.staticmethod"}
+                    "builtins.staticmethod" not in decorators
                     and positional and positional[0].arg == receiver
                 ):
                     bindings[receiver] = ".".join((self.module, *self.names))
@@ -395,6 +399,8 @@ class _ImpactVisitor(ast.NodeVisitor):
             locals_.visit(generator.target)
         self.scopes = [scope for scope in enclosing if scope[0] != "class"]
         self.scopes.append(("comprehension", dict.fromkeys(locals_.names)))
+        if isinstance(node, ast.GeneratorExp):
+            self._deferred_generator_depth += 1
         try:
             for index, generator in enumerate(node.generators):
                 if index:
@@ -407,6 +413,8 @@ class _ImpactVisitor(ast.NodeVisitor):
             else:
                 self.visit(node.elt)
         finally:
+            if isinstance(node, ast.GeneratorExp):
+                self._deferred_generator_depth -= 1
             self.scopes = enclosing
 
     visit_SetComp = visit_ListComp
@@ -418,16 +426,29 @@ class _ImpactVisitor(ast.NodeVisitor):
         return matches[0] if len(matches) == 1 else None
 
     def _resolve_call_target(self, name: str) -> str | None:
+        candidate = self._resolve_binding(name)
+        return self._resolve_target(candidate) if candidate is not None else None
+
+    def _resolve_binding(self, name: str) -> str | None:
         first, separator, remainder = name.partition(".")
         for _, bindings in reversed(self.scopes):
             if first in bindings:
                 bound = bindings[first]
                 if bound is None:
                     return None
-                candidate = f"{bound}.{remainder}" if separator else bound
-                return self._resolve_target(candidate)
+                return f"{bound}.{remainder}" if separator else bound
         # Module functions may refer to definitions later in the same file.
-        return self._resolve_target(f"{self.module}.{name}")
+        return f"{self.module}.{name}"
+
+    def _resolve_decorator_name(self, node: ast.expr) -> str | None:
+        name = _call_name(node)
+        if name is None:
+            return None
+        if name in {"classmethod", "builtins.classmethod"}:
+            return "builtins.classmethod"
+        if name in {"staticmethod", "builtins.staticmethod"}:
+            return "builtins.staticmethod"
+        return self._resolve_binding(name)
 
     def _add(self, target: str, relation: str) -> None:
         self.edges.add(
