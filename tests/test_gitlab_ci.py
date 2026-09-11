@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).parents[1]
 
@@ -48,6 +50,14 @@ def test_gitlab_pipeline_defines_knowledge_freshness_report_job_without_baseline
     assert "expire_in: 1 week" in job
     assert "- .sekr/knowledge-freshness.json" in job
     assert "data/knowledge-baseline.json" not in job
+
+
+def test_gitlab_pipeline_freshness_job_inherits_global_python_image():
+    pipeline = (ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")
+    config = yaml.safe_load(pipeline)
+
+    assert config["image"] == "python:3.12-slim"
+    assert "image" not in config["knowledge-freshness"]
 
 
 def test_readme_documents_freshness_reporting_and_baseline_approval_separately():
