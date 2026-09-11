@@ -2,7 +2,7 @@
 
 ## Status
 
-DONE_WITH_CONCERNS
+DONE
 
 ## Fixed findings
 
@@ -13,22 +13,23 @@ DONE_WITH_CONCERNS
 
 ## Tests
 
-Focused provenance suite:
+Fresh focused verification:
 
 ```text
-pytest -q tests/test_knowledge_check.py tests/test_ingest.py tests/test_db.py tests/test_models.py --basetemp .pytest-tmp-task3-fix-final
-130 passed in 77.79s (0:01:17)
+python -m pytest -q tests/test_knowledge_check.py tests/test_ingest.py --basetemp .pytest-tmp-task3-required-verification
+55 passed in 1.74s
 ```
 
-Required command:
+Focused propagation verification:
 
 ```text
-pytest -q tests/test_knowledge_check.py tests/test_ingest.py
-55 passed in 9.38s
+python -m pytest -q tests/test_knowledge_check.py tests/test_ingest.py tests/test_db.py tests/test_models.py --basetemp .pytest-tmp-task3-final-verification
+130 passed in 13.57s
 ```
 
-The full repository suite was not rerun in this interrupted iteration.
+`git diff --check f75e293..HEAD` exited 0. The full repository suite was intentionally not run.
 
-## Commit
+## Commit lineage
 
-Commit: `2fdd156 fix: close provenance validation review findings`
+- Provenance source and test changes: `d42aacf5c8b78c4def5690f6c7e864b7881cdc2e fix: close provenance validation review findings`
+- This report correction is committed separately after fresh verification.
