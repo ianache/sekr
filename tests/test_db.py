@@ -105,6 +105,50 @@ def test_search_retrieval_preserves_artifact_provenance(tmp_path):
     assert candidate.artifact.evidence == provenance["evidence"]
 
 
+def test_init_db_migrates_pre_p71_schema_and_compiler_reads_new_columns(tmp_path):
+    db_path = tmp_path / "legacy.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript("""
+            CREATE TABLE artifacts (
+                id TEXT PRIMARY KEY, artifact_type TEXT NOT NULL, title TEXT NOT NULL,
+                description TEXT NOT NULL, path TEXT, evidence_json TEXT NOT NULL,
+                confidence TEXT NOT NULL
+            );
+            CREATE TABLE relations (
+                id TEXT PRIMARY KEY, source_id TEXT NOT NULL, target_id TEXT NOT NULL,
+                relation_type TEXT NOT NULL, evidence_json TEXT NOT NULL, confidence TEXT NOT NULL
+            );
+            CREATE TABLE facts (
+                id TEXT PRIMARY KEY, artifact_id TEXT, statement TEXT NOT NULL,
+                source TEXT NOT NULL, evidence_json TEXT NOT NULL, confidence TEXT NOT NULL,
+                freshness TEXT, source_version TEXT NOT NULL, valid_from TEXT,
+                scope TEXT NOT NULL, owner TEXT
+            );
+            CREATE TABLE task_profiles (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, terms_json TEXT NOT NULL,
+                expected_artifact_types_json TEXT NOT NULL, expected_artifacts_json TEXT NOT NULL
+            );
+            CREATE TABLE dataset_metadata (
+                version TEXT PRIMARY KEY, source_commit TEXT NOT NULL,
+                generated_at TEXT NOT NULL, description TEXT NOT NULL
+            );
+            INSERT INTO artifacts VALUES ('artifact.a', 'feature', 'A', 'activate', NULL, '["a.md"]', 'VERIFIED');
+            INSERT INTO facts VALUES ('fact.a', 'artifact.a', 'fact', 'source', '["a.md"]', 'VERIFIED', 'current', 'v1', NULL, 'scope', 'owner');
+            INSERT INTO task_profiles VALUES ('profile.a', 'A', '["activate"]', '[]', '["artifact.a"]');
+            INSERT INTO dataset_metadata VALUES ('v1', 'c', 'now', '');
+        """)
+
+    init_db(db_path)
+    with sqlite3.connect(db_path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(facts)")}
+        assert {"content_hash", "observed_at", "valid_until"} <= columns
+        artifact_columns = {row[1] for row in connection.execute("PRAGMA table_info(artifacts)")}
+        assert {"source", "source_version", "content_hash", "observed_at", "valid_from", "valid_until"} <= artifact_columns
+
+    candidate = next(candidate for candidate in KnowledgeRepository(db_path).search_candidates(["activate"]))
+    assert candidate.artifact.source == ""
+
+
 def test_loader_links_curated_facts_to_their_related_artifact(tmp_path):
     db_path = seeded_db(tmp_path)
     with sqlite3.connect(db_path) as connection:

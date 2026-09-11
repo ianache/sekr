@@ -24,7 +24,7 @@ def seeded_db(tmp_path):
 
 @pytest.fixture
 def runner():
-    def run(*args, env=None):
+    def run(*args, env=None, cwd=None):
         environment = dict(os.environ)
         environment["PYTHONPATH"] = str(Path("src").resolve())
         if env:
@@ -39,6 +39,7 @@ def runner():
             text=True,
             check=False,
             env=environment,
+            cwd=cwd,
         )
 
     return run
@@ -662,3 +663,47 @@ def test_knowledge_freshness_never_overwrites_approved_baseline(tmp_path, runner
     assert result.returncode == 1
     assert json.loads(result.stdout)["error"]["code"] == "KNOWLEDGE_OUTPUT_ERROR"
     assert baseline.read_text(encoding="utf-8") == "approved"
+
+
+def test_knowledge_freshness_rejects_existing_sqlite_output_from_any_cwd(tmp_path, runner):
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text(json.dumps({"nodes": [], "relationships": []}), encoding="utf-8")
+    sqlite_path = tmp_path / "knowledge.sqlite"
+    sqlite_path.write_bytes(b"SQLite format 3\x00" + b"protected")
+
+    result = runner(
+        "knowledge-freshness", "--input", str(snapshot), "--as-of", "2026-09-11T12:00:00Z",
+        "--output", str(sqlite_path), cwd=Path(__file__).parent.parent.parent,
+    )
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["error"]["code"] == "KNOWLEDGE_OUTPUT_ERROR"
+    assert sqlite_path.read_bytes().startswith(b"SQLite format 3")
+
+
+def test_knowledge_freshness_rejects_existing_dataset_source_output(tmp_path, runner):
+    source = tmp_path / "source.json"
+    source.write_text(json.dumps({
+        "metadata": {"version": "v", "source_commit": "c", "generated_at": "now"},
+        "artifacts": [], "relations": [], "facts": [], "task_profiles": [],
+    }), encoding="utf-8")
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text(json.dumps({"nodes": [], "relationships": []}), encoding="utf-8")
+
+    result = runner(
+        "knowledge-freshness", "--input", str(snapshot), "--as-of", "2026-09-11T12:00:00Z",
+        "--output", str(source), cwd=Path(__file__).parent.parent.parent,
+    )
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["error"]["code"] == "KNOWLEDGE_OUTPUT_ERROR"
+
+
+def test_knowledge_freshness_reports_invalid_snapshot_structure(tmp_path, runner):
+    source = tmp_path / "invalid.json"
+    source.write_text(json.dumps({"nodes": [{}], "relationships": []}), encoding="utf-8")
+
+    result = runner("knowledge-freshness", "--input", str(source), "--as-of", "2026-09-11T12:00:00Z")
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["error"]["code"] == "INVALID_KNOWLEDGE"

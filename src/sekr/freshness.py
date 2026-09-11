@@ -51,6 +51,8 @@ def evaluate_freshness(
 
 
 def _validate_snapshot_provenance(snapshot: Mapping[str, object]) -> None:
+    if not isinstance(snapshot, Mapping):
+        raise StructuredError("INVALID_KNOWLEDGE", "Knowledge snapshot must be an object")
     for collection in ("nodes", "relationships"):
         records = snapshot.get(collection)
         if not isinstance(records, list):
@@ -58,6 +60,16 @@ def _validate_snapshot_provenance(snapshot: Mapping[str, object]) -> None:
         for index, record in enumerate(records):
             if not isinstance(record, Mapping):
                 raise StructuredError("INVALID_KNOWLEDGE", "Knowledge snapshot records must be objects")
+            required = ("kind", "key", "properties") if collection == "nodes" else ("key", "properties")
+            missing = [field for field in required if field not in record]
+            if missing:
+                raise StructuredError("INVALID_KNOWLEDGE", "Knowledge snapshot record is missing required fields", {"collection": collection, "index": index, "missing": missing})
+            identity_fields = required[:-1] + (() if collection == "nodes" else ("source_kind", "source_key", "target_kind", "target_key"))
+            for field in identity_fields:
+                if field not in record:
+                    continue
+                if not isinstance(record[field], str) or not record[field]:
+                    raise StructuredError("INVALID_KNOWLEDGE", "Knowledge snapshot record identity fields must be non-empty strings", {"collection": collection, "index": index, "field": field})
             properties = record.get("properties")
             if not isinstance(properties, Mapping):
                 raise StructuredError("INVALID_KNOWLEDGE", "Knowledge snapshot record properties must be an object")

@@ -283,8 +283,10 @@ class ContextCompiler:
                 KnowledgeFact(
                     id=row["id"], statement=row["statement"], source=row["source"],
                     evidence=json.loads(row["evidence_json"]), confidence=row["confidence"],
-                    freshness=row["freshness"], source_version=row["source_version"],
-                    valid_from=row["valid_from"], scope=row["scope"], owner=row["owner"],
+                    freshness=row["freshness"], source_version=row["source_version"] or "",
+                    valid_from=row["valid_from"], content_hash=row["content_hash"],
+                    observed_at=row["observed_at"], valid_until=row["valid_until"],
+                    scope=row["scope"], owner=row["owner"],
                 )
             )
         return {artifact_id: tuple(records) for artifact_id, records in facts.items()}

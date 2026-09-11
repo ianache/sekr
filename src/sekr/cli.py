@@ -326,12 +326,37 @@ def _write_freshness_output(path: str, payload: dict[str, object]) -> None:
 
 def _ensure_freshness_output_is_safe(output: str | Path, input_path: str | Path) -> None:
     output_path = Path(output).resolve()
-    protected = {Path(input_path).resolve(), (Path.cwd() / "data" / "knowledge-baseline.json").resolve()}
+    input_resolved = Path(input_path).resolve()
+    protected = {input_resolved}
+    for parent in (input_resolved.parent, *input_resolved.parents):
+        protected.add((parent / "data" / "knowledge-baseline.json").resolve())
     configured_baseline = os.environ.get("SEKR_KNOWLEDGE_BASELINE")
     if configured_baseline:
         protected.add(Path(configured_baseline).resolve())
     if output_path in protected:
         raise StructuredError("KNOWLEDGE_OUTPUT_ERROR", "Knowledge freshness output must not overwrite an input or approved baseline")
+    if output_path.exists() and (_is_sqlite_file(output_path) or _is_knowledge_source(output_path)):
+        raise StructuredError("KNOWLEDGE_OUTPUT_ERROR", "Knowledge freshness output must not overwrite an existing SQLite or source file")
+
+
+def _is_sqlite_file(path: Path) -> bool:
+    try:
+        return path.read_bytes()[:16] == b"SQLite format 3\x00"
+    except OSError:
+        return False
+
+
+def _is_knowledge_source(path: Path) -> bool:
+    if path.suffix.lower() not in {".json", ".jsonl"}:
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    return isinstance(data, dict) and (
+        {"metadata", "artifacts", "relations", "facts", "task_profiles"} <= set(data)
+        or {"nodes", "relationships"} <= set(data)
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -341,6 +366,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.command == "mcp":
             _serve_mcp(arguments.db)
             return 0
+        if arguments.command == "knowledge-freshness" and arguments.output is not None:
+            _ensure_freshness_output_is_safe(arguments.output, arguments.input)
         payload = _dispatch(arguments)
         if arguments.command == "delta" and arguments.output is not None:
             _write_delta_output(arguments.output, payload)
@@ -349,7 +376,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif arguments.command == "knowledge-snapshot":
             _write_snapshot_output(arguments.output, payload)
         elif arguments.command == "knowledge-freshness" and arguments.output is not None:
-            _ensure_freshness_output_is_safe(arguments.output, arguments.input)
             _write_freshness_output(arguments.output, payload)
         else:
             _emit(payload)

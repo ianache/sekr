@@ -54,6 +54,16 @@ def test_knowledge_check_accepts_legacy_projection_null_valid_from():
     assert check_knowledge(snapshot, snapshot).valid is True
 
 
+def test_projection_omits_generated_nullable_valid_from_but_explicit_null_is_rejected():
+    snapshot = projection_to_snapshot(build_graph_projection(Path("data/coder_activation.json")))
+    assert all("valid_from" not in node["properties"] for node in snapshot["nodes"])
+
+    invalid = _snapshot([_node("Fact", "fact-a", valid_from=None)])
+    with pytest.raises(StructuredError) as error:
+        check_knowledge(invalid, snapshot)
+    assert error.value.code == "INVALID_PROVENANCE"
+
+
 def test_knowledge_check_rejects_scalar_evidence():
     with pytest.raises(StructuredError) as error:
         check_knowledge(_snapshot([_node("Fact", "fact-a", evidence="docs/a.md")]), _snapshot())

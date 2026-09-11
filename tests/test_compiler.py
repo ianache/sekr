@@ -169,6 +169,23 @@ def test_compile_preserves_fact_provenance_in_sections_and_items(seeded_db):
     assert service["facts"] == [fact]
 
 
+def test_compile_preserves_fact_content_hash_observed_and_valid_until(seeded_db):
+    with sqlite3.connect(seeded_db) as connection:
+        connection.execute(
+            "UPDATE facts SET content_hash = ?, observed_at = ?, valid_until = ? WHERE id = ?",
+            ("sha256:" + "a" * 64, "2026-09-01T00:00:00Z", "2026-09-30T00:00:00Z", "fact.active_query_filters_state"),
+        )
+
+    payload = ContextCompiler(KnowledgeRepository(seeded_db)).compile("activate coder values", 8).to_dict()
+    fact = next(
+        fact for item in payload["items"] for fact in item["facts"]
+        if fact["id"] == "fact.active_query_filters_state"
+    )
+    assert fact["contentHash"] == "sha256:" + "a" * 64
+    assert fact["observedAt"] == "2026-09-01T00:00:00Z"
+    assert fact["validUntil"] == "2026-09-30T00:00:00Z"
+
+
 @pytest.mark.parametrize("confidence", ["UNKNOWN", "CONFLICTED"])
 def test_compile_warns_on_evidence_free_fact_despite_artifact_evidence(seeded_db, confidence):
     with sqlite3.connect(seeded_db) as connection:

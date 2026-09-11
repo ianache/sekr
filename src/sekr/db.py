@@ -149,14 +149,20 @@ def init_db(path: str | Path) -> None:
             """
         )
         for table, columns in {
-            "artifacts": ("source", "source_version", "content_hash", "observed_at", "valid_from", "valid_until"),
-            "relations": ("source", "source_version", "content_hash", "observed_at", "valid_from", "valid_until"),
-            "facts": ("content_hash", "observed_at", "valid_until"),
+            "artifacts": {
+                "source": "TEXT NOT NULL DEFAULT ''", "source_version": "TEXT NOT NULL DEFAULT ''",
+                "content_hash": "TEXT", "observed_at": "TEXT", "valid_from": "TEXT", "valid_until": "TEXT",
+            },
+            "relations": {
+                "source": "TEXT NOT NULL DEFAULT ''", "source_version": "TEXT NOT NULL DEFAULT ''",
+                "content_hash": "TEXT", "observed_at": "TEXT", "valid_from": "TEXT", "valid_until": "TEXT",
+            },
+            "facts": {"content_hash": "TEXT", "observed_at": "TEXT", "valid_until": "TEXT"},
         }.items():
             existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
-            for column in columns:
+            for column, definition in columns.items():
                 if column not in existing:
-                    connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT")
+                    connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def _read_dataset(dataset_json: str | Path) -> dict[str, object]:
@@ -447,7 +453,7 @@ def _artifact_from_row(row: sqlite3.Row) -> Artifact:
     return Artifact(
         id=row["id"], artifact_type=row["artifact_type"], title=row["title"],
         description=row["description"], path=row["path"], evidence=json.loads(row["evidence_json"]),
-        confidence=row["confidence"], source=row["source"], source_version=row["source_version"],
+        confidence=row["confidence"], source=row["source"] or "", source_version=row["source_version"] or "",
         content_hash=row["content_hash"], observed_at=row["observed_at"],
         valid_from=row["valid_from"], valid_until=row["valid_until"],
     )
