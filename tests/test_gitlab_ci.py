@@ -34,3 +34,26 @@ def test_gitlab_pipeline_defines_manual_baseline_proposal_without_overwriting_ap
     assert "--output .sekr/proposed-knowledge-baseline.json" in pipeline
     assert "- .sekr/proposed-knowledge-baseline.json" in pipeline
     assert "data/knowledge-baseline.json" in pipeline
+
+
+def test_gitlab_pipeline_defines_knowledge_freshness_report_job_without_baseline_write():
+    pipeline = (ROOT / ".gitlab-ci.yml").read_text(encoding="utf-8")
+    job = pipeline.split("knowledge-freshness:", 1)[1].split("\n\n", 1)[0]
+
+    assert pipeline.index("knowledge-check:") < pipeline.index("knowledge-freshness:")
+    assert 'SEKR_KNOWLEDGE_AS_OF: "2026-09-11T00:00:00Z"' in pipeline
+    assert "knowledge-freshness:" in pipeline
+    assert 'python -m sekr.cli knowledge-freshness --input "$SEKR_KNOWLEDGE_INPUT" --as-of "$SEKR_KNOWLEDGE_AS_OF" --output .sekr/knowledge-freshness.json' in job
+    assert "when: always" in job
+    assert "expire_in: 1 week" in job
+    assert "- .sekr/knowledge-freshness.json" in job
+    assert "data/knowledge-baseline.json" not in job
+
+
+def test_readme_documents_freshness_reporting_and_baseline_approval_separately():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "knowledge-freshness" in readme
+    assert "SEKR_KNOWLEDGE_AS_OF" in readme
+    assert "freshness report" in readme.lower()
+    assert "does not approve" in readme.lower()

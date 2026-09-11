@@ -10,6 +10,7 @@ variables:
   SEKR_KNOWLEDGE_INPUT: "data/coder_activation.json"
   SEKR_KNOWLEDGE_BASELINE: "data/knowledge-baseline.json"
   SEKR_KNOWLEDGE_POLICY: ".sekr/knowledge-policy.json"
+  SEKR_KNOWLEDGE_AS_OF: "2026-09-11T00:00:00Z"
 
 pytest:
   stage: test
@@ -32,6 +33,22 @@ knowledge-check:
     expire_in: 1 week
     paths:
       - .sekr/knowledge-check.json
+
+knowledge-freshness:
+  stage: knowledge
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - when: never
+  script:
+    - python -m pip install -e .
+    - mkdir -p .sekr
+    - python -m sekr.cli knowledge-freshness --input "$SEKR_KNOWLEDGE_INPUT" --as-of "$SEKR_KNOWLEDGE_AS_OF" --output .sekr/knowledge-freshness.json
+  artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - .sekr/knowledge-freshness.json
 
 knowledge-baseline-propose:
   stage: knowledge

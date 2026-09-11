@@ -149,6 +149,21 @@ artifact and never overwrites `data/knowledge-baseline.json`. To approve a
 change, review the artifact, replace the versioned baseline in a separate
 commit, and let the blocking check validate that commit.
 
+Assess knowledge freshness independently of baseline approval with:
+
+```powershell
+sekr knowledge-freshness --input data/coder_activation.json `
+  --as-of 2026-09-11T00:00:00Z --output .sekr/knowledge-freshness.json
+```
+
+The freshness report classifies provenance as of the supplied timestamp and
+does not approve, update, or write `data/knowledge-baseline.json`. GitLab CI
+runs the same read-only report in the `knowledge-freshness` job using
+`SEKR_KNOWLEDGE_INPUT` and the fixed default
+`SEKR_KNOWLEDGE_AS_OF=2026-09-11T00:00:00Z`; it publishes
+`.sekr/knowledge-freshness.json` as an artifact for one week. Review and
+approve baseline changes separately through `knowledge-baseline-propose`.
+
 The enforcement policy is stored in `.sekr/knowledge-policy.json`. Its
 default `strict` mode blocks all drift. `report-only` preserves the report but
 allows the job to succeed, while `allowlist` permits only exact records listed
