@@ -12,7 +12,11 @@ from sekr.delta import build_delta
 from sekr.errors import StructuredError
 from sekr.git_delta import GitDeltaSource
 from sekr.ingest import build_graph_projection
-from sekr.knowledge_check import check_knowledge, projection_to_snapshot
+from sekr.knowledge_check import (
+    build_knowledge_snapshot,
+    check_knowledge,
+    projection_to_snapshot,
+)
 from sekr.neo4j import write_projection
 
 
@@ -86,6 +90,10 @@ def _build_parser() -> _Parser:
     knowledge_check.add_argument("--baseline", required=True, metavar="PATH")
     knowledge_check.add_argument("--output", metavar="PATH")
 
+    knowledge_snapshot = commands.add_parser("knowledge-snapshot")
+    knowledge_snapshot.add_argument("--input", required=True, metavar="PATH")
+    knowledge_snapshot.add_argument("--output", required=True, metavar="PATH")
+
     return parser
 
 
@@ -146,6 +154,9 @@ def _dispatch(arguments: argparse.Namespace) -> dict[str, object]:
         current = _read_knowledge(arguments.input)
         baseline = _read_knowledge(arguments.baseline)
         return check_knowledge(current, baseline).to_dict()
+
+    if arguments.command == "knowledge-snapshot":
+        return build_knowledge_snapshot(arguments.input)
 
     if arguments.command == "dataset":
         if arguments.dataset_command == "load":
@@ -250,6 +261,16 @@ def _write_knowledge_output(path: str, payload: dict[str, object]) -> None:
     print(f"Wrote knowledge check report to {path}", file=os.sys.stderr)
 
 
+def _write_snapshot_output(path: str, payload: dict[str, object]) -> None:
+    try:
+        Path(path).write_bytes(_serialize(payload))
+    except OSError as error:
+        raise StructuredError(
+            "KNOWLEDGE_OUTPUT_ERROR", "Knowledge snapshot could not be written"
+        ) from error
+    print(f"Wrote knowledge snapshot to {path}", file=os.sys.stderr)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     try:
@@ -262,6 +283,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             _write_delta_output(arguments.output, payload)
         elif arguments.command == "knowledge-check" and arguments.output is not None:
             _write_knowledge_output(arguments.output, payload)
+        elif arguments.command == "knowledge-snapshot":
+            _write_snapshot_output(arguments.output, payload)
         else:
             _emit(payload)
         return 0 if arguments.command != "knowledge-check" or payload["valid"] else 1

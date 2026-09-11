@@ -1,7 +1,10 @@
 import pytest
 
 from sekr.errors import StructuredError
-from sekr.knowledge_check import check_knowledge
+from pathlib import Path
+
+from sekr.ingest import build_graph_projection
+from sekr.knowledge_check import build_knowledge_snapshot, check_knowledge, projection_to_snapshot
 
 
 def _snapshot(nodes=(), relationships=()):
@@ -113,3 +116,13 @@ def test_knowledge_check_rejects_malformed_snapshot(snapshot):
         check_knowledge(snapshot, _snapshot())
 
     assert error.value.code == "INVALID_KNOWLEDGE"
+
+
+def test_build_knowledge_snapshot_matches_projection_and_is_deterministic():
+    dataset = Path("data/coder_activation.json")
+
+    snapshot = build_knowledge_snapshot(dataset)
+
+    assert snapshot == projection_to_snapshot(build_graph_projection(dataset))
+    assert snapshot == build_knowledge_snapshot(dataset)
+    assert snapshot["nodes"][0]["kind"] == "Dataset"

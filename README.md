@@ -128,12 +128,19 @@ keys plus orphan relationship endpoints in both snapshots. The command exits
 `0` only when the knowledge is structurally valid and identical to the
 baseline; drift or integrity violations return `1`.
 
-For GitLab CI, the repository includes a blocking `knowledge-check` job in
-`.gitlab-ci.yml`. It publishes `.sekr/knowledge-check.json` as an artifact
-for one week. The default variables use `data/coder_activation.json` as a
-bootstrap baseline; configure `SEKR_KNOWLEDGE_INPUT` and
-`SEKR_KNOWLEDGE_BASELINE` as CI/CD variables to use an approved baseline for
-each project or environment.
+Generate an approved baseline deterministically with:
+
+```powershell
+sekr knowledge-snapshot --input data/coder_activation.json `
+  --output data/knowledge-baseline.json
+```
+
+The generated file is versioned and reviewed like source code. For GitLab CI,
+the repository includes a blocking `knowledge-check` job in `.gitlab-ci.yml`.
+It compares the input with `data/knowledge-baseline.json` and publishes
+`.sekr/knowledge-check.json` as an artifact for one week. Configure
+`SEKR_KNOWLEDGE_INPUT` and `SEKR_KNOWLEDGE_BASELINE` as CI/CD variables when
+using a different project or environment baseline.
 
 Evaluation output reports precision at K, critical recall, context size, false-positive rate and IDs, plus reproducibility. It never emits the oracle itself.
 

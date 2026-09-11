@@ -45,6 +45,13 @@ def projection_to_snapshot(projection: GraphProjection) -> dict[str, object]:
     }
 
 
+def build_knowledge_snapshot(path: str) -> dict[str, object]:
+    """Build a validated, canonical snapshot from a SEKR dataset JSON file."""
+    from sekr.ingest import build_graph_projection
+
+    return projection_to_snapshot(build_graph_projection(path))
+
+
 def check_knowledge(current: Snapshot, baseline: Snapshot) -> KnowledgeCheckReport:
     """Check integrity and compare a current snapshot against its baseline."""
     current_nodes, current_relationships = _snapshot_records(current, "current")

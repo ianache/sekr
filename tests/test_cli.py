@@ -467,3 +467,17 @@ def test_knowledge_check_returns_structured_error_for_malformed_snapshot(tmp_pat
     assert result.returncode == 1
     assert result.stderr == ""
     assert json.loads(result.stdout)["error"]["code"] == "INVALID_KNOWLEDGE"
+
+
+def test_knowledge_snapshot_writes_canonical_baseline(tmp_path, runner):
+    output = tmp_path / "baseline.json"
+
+    result = runner("knowledge-snapshot", "--input", "data/coder_activation.json",
+                    "--output", str(output))
+
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == f"Wrote knowledge snapshot to {output}\n"
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["nodes"][0]["kind"] == "Dataset"
+    assert payload["relationships"]

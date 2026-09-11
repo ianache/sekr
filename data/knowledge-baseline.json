@@ -1,0 +1,565 @@
+{
+  "nodes": [
+    {
+      "key": "0.1.0",
+      "kind": "Dataset",
+      "properties": {
+        "description": "Curated Tenant/Coder activation and deactivation evidence for local deterministic retrieval.",
+        "generated_at": "2026-09-07T00:00:00Z",
+        "kind": "Dataset",
+        "source_commit": "curated-local-v0.1",
+        "version": "0.1.0"
+      }
+    },
+    {
+      "key": "component.billing_invoice_export",
+      "kind": "Artifact",
+      "properties": {
+        "artifact_type": "component",
+        "confidence": "VERIFIED",
+        "description": "Unrelated monthly invoice export component for false-positive measurement.",
+        "evidence": [
+          "billing/src/invoice_export.py:1-42"
+        ],
+        "id": "component.billing_invoice_export",
+        "kind": "Artifact",
+        "path": "billing/src/invoice_export.py",
+        "title": "Billing invoice export"
+      }
+    },
+    {
+      "key": "document.adr_coder_activation",
+      "kind": "Artifact",
+      "properties": {
+        "artifact_type": "document",
+        "confidence": "APPROVED",
+        "description": "Activation and deactivation update state instead of deleting Tenant Coder values.",
+        "evidence": [
+          "tenant/docs/adr/004-coder-activation.md:1-34"
+        ],
+        "id": "document.adr_coder_activation",
+        "kind": "Artifact",
+        "path": "tenant/docs/adr/004-coder-activation.md",
+        "title": "ADR: preserve Coder activation history"
+      }
+    },
+    {
+      "key": "endpoint.coder_values",
+      "kind": "Artifact",
+      "properties": {
+        "artifact_type": "endpoint",
+        "confidence": "VERIFIED",
+        "description": "Tenant-scoped API endpoint for activating, deactivating, and listing Coder values.",
+        "evidence": [
+          "tenant/api/coder_values.py:12-62"
+        ],
+        "id": "endpoint.coder_values",
+        "kind": "Artifact",
+        "path": "tenant/api/coder_values.py",
+        "title": "Coder values API endpoint"
+      }
+    },
+    {
+      "key": "feature.tenant_coder_activation",
+      "kind": "Artifact",
+      "properties": {
+        "artifact_type": "feature",
+        "confidence": "APPROVED",
+        "description": "Activate and deactivate Coder values for a Tenant while preserving active-only query behavior.",
+        "evidence": [
+          "tenant/features/coder_activation.md:1-28"
+        ],
+        "id": "feature.tenant_coder_activation",
+        "kind": "Artifact",
+        "path": "tenant/features/coder_activation.md",
+        "title": "Tenant Coder activation and deactivation"
+      }
+    },
+    {
+      "key": "repository.tenant_coder_repository",
+      "kind": "Artifact",
+      "properties": {
+        "artifact_type": "repository",
+        "confidence": "VERIFIED",
+        "description": "Persistence repository for Tenant-specific Coder values.",
+        "evidence": [
+          "tenant/src/coder_value_repository.py:1-54"
+        ],
+        "id": "repository.tenant_coder_repository",
+        "kind": "Artifact",
+        "path": "tenant/src/coder_value_repository.py",
+        "title": "Tenant Coder repository"
+      }
+    },
+    {
+      "key": "symbol.coder_value_repository",
+      "kind": "Artifact",
+      "properties": {
+        "artifact_type": "symbol",
+        "confidence": "VERIFIED",
+        "description": "Repository used by the Coder value service to persist Tenant Coder active state.",
+        "evidence": [
+          "tenant/src/coder_value_repository.py:8-54"
+        ],
+        "id": "symbol.coder_value_repository",
+        "kind": "Artifact",
+        "path": "tenant/src/coder_value_repository.py",
+        "title": "CoderValueRepository"
+      }
+    },
+    {
+      "key": "symbol.coder_value_service",
+      "kind": "Artifact",
+      "properties": {
+        "artifact_type": "symbol",
+        "confidence": "VERIFIED",
+        "description": "Domain service that activates Coder values and queries only active values for a Tenant.",
+        "evidence": [
+          "tenant/src/coder_value_service.py:10-86"
+        ],
+        "id": "symbol.coder_value_service",
+        "kind": "Artifact",
+        "path": "tenant/src/coder_value_service.py",
+        "title": "CoderValueService"
+      }
+    },
+    {
+      "key": "table.tenant_coder_values",
+      "kind": "Artifact",
+      "properties": {
+        "artifact_type": "table",
+        "confidence": "VERIFIED",
+        "description": "Tenant Coder value table with an active flag used by active-values queries.",
+        "evidence": [
+          "tenant/migrations/0042_tenant_coder_values.sql:1-19"
+        ],
+        "id": "table.tenant_coder_values",
+        "kind": "Artifact",
+        "path": "tenant/migrations/0042_tenant_coder_values.sql",
+        "title": "tenant_coder_values"
+      }
+    },
+    {
+      "key": "test.active_values_exclude_inactive",
+      "kind": "Artifact",
+      "properties": {
+        "artifact_type": "test",
+        "confidence": "VERIFIED",
+        "description": "Regression test verifies the active values query excludes deactivated Tenant Coder values.",
+        "evidence": [
+          "tenant/tests/test_coder_value_service.py:44-78"
+        ],
+        "id": "test.active_values_exclude_inactive",
+        "kind": "Artifact",
+        "path": "tenant/tests/test_coder_value_service.py",
+        "title": "Active values exclude inactive values"
+      }
+    },
+    {
+      "key": "fact.active_query_filters_state",
+      "kind": "Fact",
+      "properties": {
+        "artifact_id": "symbol.coder_value_service",
+        "confidence": "VERIFIED",
+        "evidence": [
+          "tenant/tests/test_coder_value_service.py:44-78"
+        ],
+        "freshness": "current",
+        "id": "fact.active_query_filters_state",
+        "kind": "Fact",
+        "owner": "Tenant domain",
+        "scope": "Tenant Coder activation",
+        "source": "Service regression test",
+        "source_version": "0.1",
+        "statement": "Active values queries must exclude inactive Tenant Coder values.",
+        "valid_from": null
+      }
+    },
+    {
+      "key": "fact.deactivation_preserves_history",
+      "kind": "Fact",
+      "properties": {
+        "artifact_id": "feature.tenant_coder_activation",
+        "confidence": "APPROVED",
+        "evidence": [
+          "tenant/docs/adr/004-coder-activation.md:12-20"
+        ],
+        "freshness": "current",
+        "id": "fact.deactivation_preserves_history",
+        "kind": "Fact",
+        "owner": "Tenant domain",
+        "scope": "Tenant Coder activation",
+        "source": "ADR 004",
+        "source_version": "0.1",
+        "statement": "Deactivation marks a Tenant Coder value inactive and preserves history.",
+        "valid_from": null
+      }
+    },
+    {
+      "key": "profile.coder_activation",
+      "kind": "TaskProfile",
+      "properties": {
+        "expected_artifact_types": [
+          "feature",
+          "endpoint",
+          "symbol",
+          "table",
+          "test",
+          "document"
+        ],
+        "expected_artifacts": [
+          "document.adr_coder_activation",
+          "endpoint.coder_values",
+          "feature.tenant_coder_activation",
+          "symbol.coder_value_repository",
+          "symbol.coder_value_service",
+          "table.tenant_coder_values",
+          "test.active_values_exclude_inactive"
+        ],
+        "id": "profile.coder_activation",
+        "kind": "TaskProfile",
+        "name": "Activate or deactivate Tenant Coder values",
+        "terms": [
+          "tenant",
+          "coder",
+          "activate",
+          "deactivate",
+          "active",
+          "values"
+        ]
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "key": "dataset:0.1.0:artifact:component.billing_invoice_export",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "HAS_ARTIFACT"
+      },
+      "source_key": "0.1.0",
+      "source_kind": "Dataset",
+      "target_key": "component.billing_invoice_export",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "dataset:0.1.0:artifact:document.adr_coder_activation",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "HAS_ARTIFACT"
+      },
+      "source_key": "0.1.0",
+      "source_kind": "Dataset",
+      "target_key": "document.adr_coder_activation",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "dataset:0.1.0:artifact:endpoint.coder_values",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "HAS_ARTIFACT"
+      },
+      "source_key": "0.1.0",
+      "source_kind": "Dataset",
+      "target_key": "endpoint.coder_values",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "dataset:0.1.0:artifact:feature.tenant_coder_activation",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "HAS_ARTIFACT"
+      },
+      "source_key": "0.1.0",
+      "source_kind": "Dataset",
+      "target_key": "feature.tenant_coder_activation",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "dataset:0.1.0:artifact:repository.tenant_coder_repository",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "HAS_ARTIFACT"
+      },
+      "source_key": "0.1.0",
+      "source_kind": "Dataset",
+      "target_key": "repository.tenant_coder_repository",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "dataset:0.1.0:artifact:symbol.coder_value_repository",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "HAS_ARTIFACT"
+      },
+      "source_key": "0.1.0",
+      "source_kind": "Dataset",
+      "target_key": "symbol.coder_value_repository",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "dataset:0.1.0:artifact:symbol.coder_value_service",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "HAS_ARTIFACT"
+      },
+      "source_key": "0.1.0",
+      "source_kind": "Dataset",
+      "target_key": "symbol.coder_value_service",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "dataset:0.1.0:artifact:table.tenant_coder_values",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "HAS_ARTIFACT"
+      },
+      "source_key": "0.1.0",
+      "source_kind": "Dataset",
+      "target_key": "table.tenant_coder_values",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "dataset:0.1.0:artifact:test.active_values_exclude_inactive",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "HAS_ARTIFACT"
+      },
+      "source_key": "0.1.0",
+      "source_kind": "Dataset",
+      "target_key": "test.active_values_exclude_inactive",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "artifact:symbol.coder_value_service:fact:fact.active_query_filters_state",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "HAS_FACT"
+      },
+      "source_key": "symbol.coder_value_service",
+      "source_kind": "Artifact",
+      "target_key": "fact.active_query_filters_state",
+      "target_kind": "Fact"
+    },
+    {
+      "key": "artifact:feature.tenant_coder_activation:fact:fact.deactivation_preserves_history",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "HAS_FACT"
+      },
+      "source_key": "feature.tenant_coder_activation",
+      "source_kind": "Artifact",
+      "target_key": "fact.deactivation_preserves_history",
+      "target_kind": "Fact"
+    },
+    {
+      "key": "dataset:0.1.0:profile:profile.coder_activation",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "HAS_PROFILE"
+      },
+      "source_key": "0.1.0",
+      "source_kind": "Dataset",
+      "target_key": "profile.coder_activation",
+      "target_kind": "TaskProfile"
+    },
+    {
+      "key": "profile:profile.coder_activation:artifact:document.adr_coder_activation",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "EXPECTS_ARTIFACT"
+      },
+      "source_key": "profile.coder_activation",
+      "source_kind": "TaskProfile",
+      "target_key": "document.adr_coder_activation",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "profile:profile.coder_activation:artifact:endpoint.coder_values",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "EXPECTS_ARTIFACT"
+      },
+      "source_key": "profile.coder_activation",
+      "source_kind": "TaskProfile",
+      "target_key": "endpoint.coder_values",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "profile:profile.coder_activation:artifact:feature.tenant_coder_activation",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "EXPECTS_ARTIFACT"
+      },
+      "source_key": "profile.coder_activation",
+      "source_kind": "TaskProfile",
+      "target_key": "feature.tenant_coder_activation",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "profile:profile.coder_activation:artifact:symbol.coder_value_repository",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "EXPECTS_ARTIFACT"
+      },
+      "source_key": "profile.coder_activation",
+      "source_kind": "TaskProfile",
+      "target_key": "symbol.coder_value_repository",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "profile:profile.coder_activation:artifact:symbol.coder_value_service",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "EXPECTS_ARTIFACT"
+      },
+      "source_key": "profile.coder_activation",
+      "source_kind": "TaskProfile",
+      "target_key": "symbol.coder_value_service",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "profile:profile.coder_activation:artifact:table.tenant_coder_values",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "EXPECTS_ARTIFACT"
+      },
+      "source_key": "profile.coder_activation",
+      "source_kind": "TaskProfile",
+      "target_key": "table.tenant_coder_values",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "profile:profile.coder_activation:artifact:test.active_values_exclude_inactive",
+      "properties": {
+        "confidence": "UNKNOWN",
+        "evidence": null,
+        "relation_type": "EXPECTS_ARTIFACT"
+      },
+      "source_key": "profile.coder_activation",
+      "source_kind": "TaskProfile",
+      "target_key": "test.active_values_exclude_inactive",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "relation.endpoint_service",
+      "properties": {
+        "confidence": "VERIFIED",
+        "evidence": [
+          "tenant/api/coder_values.py:24-51"
+        ],
+        "id": "relation.endpoint_service",
+        "relation_type": "calls",
+        "source_id": "endpoint.coder_values",
+        "target_id": "symbol.coder_value_service"
+      },
+      "source_key": "endpoint.coder_values",
+      "source_kind": "Artifact",
+      "target_key": "symbol.coder_value_service",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "relation.feature_adr",
+      "properties": {
+        "confidence": "APPROVED",
+        "evidence": [
+          "tenant/docs/adr/004-coder-activation.md:8-28"
+        ],
+        "id": "relation.feature_adr",
+        "relation_type": "constrained_by",
+        "source_id": "feature.tenant_coder_activation",
+        "target_id": "document.adr_coder_activation"
+      },
+      "source_key": "feature.tenant_coder_activation",
+      "source_kind": "Artifact",
+      "target_key": "document.adr_coder_activation",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "relation.feature_endpoint",
+      "properties": {
+        "confidence": "APPROVED",
+        "evidence": [
+          "tenant/features/coder_activation.md:8-14"
+        ],
+        "id": "relation.feature_endpoint",
+        "relation_type": "exposed_by",
+        "source_id": "feature.tenant_coder_activation",
+        "target_id": "endpoint.coder_values"
+      },
+      "source_key": "feature.tenant_coder_activation",
+      "source_kind": "Artifact",
+      "target_key": "endpoint.coder_values",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "relation.repository_table",
+      "properties": {
+        "confidence": "VERIFIED",
+        "evidence": [
+          "tenant/src/coder_value_repository.py:16-48"
+        ],
+        "id": "relation.repository_table",
+        "relation_type": "persists_to",
+        "source_id": "symbol.coder_value_repository",
+        "target_id": "table.tenant_coder_values"
+      },
+      "source_key": "symbol.coder_value_repository",
+      "source_kind": "Artifact",
+      "target_key": "table.tenant_coder_values",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "relation.service_repository",
+      "properties": {
+        "confidence": "VERIFIED",
+        "evidence": [
+          "tenant/src/coder_value_service.py:20-70"
+        ],
+        "id": "relation.service_repository",
+        "relation_type": "uses",
+        "source_id": "symbol.coder_value_service",
+        "target_id": "symbol.coder_value_repository"
+      },
+      "source_key": "symbol.coder_value_service",
+      "source_kind": "Artifact",
+      "target_key": "symbol.coder_value_repository",
+      "target_kind": "Artifact"
+    },
+    {
+      "key": "relation.service_test",
+      "properties": {
+        "confidence": "VERIFIED",
+        "evidence": [
+          "tenant/tests/test_coder_value_service.py:44-78"
+        ],
+        "id": "relation.service_test",
+        "relation_type": "verified_by",
+        "source_id": "symbol.coder_value_service",
+        "target_id": "test.active_values_exclude_inactive"
+      },
+      "source_key": "symbol.coder_value_service",
+      "source_kind": "Artifact",
+      "target_key": "test.active_values_exclude_inactive",
+      "target_kind": "Artifact"
+    }
+  ]
+}

@@ -8,8 +8,7 @@ variables:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PIP_NO_CACHE_DIR: "1"
   SEKR_KNOWLEDGE_INPUT: "data/coder_activation.json"
-  # Bootstrap baseline; override this CI variable with the approved baseline.
-  SEKR_KNOWLEDGE_BASELINE: "data/coder_activation.json"
+  SEKR_KNOWLEDGE_BASELINE: "data/knowledge-baseline.json"
 
 pytest:
   stage: test
