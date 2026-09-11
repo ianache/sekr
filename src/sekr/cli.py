@@ -174,7 +174,8 @@ def _dispatch(arguments: argparse.Namespace) -> dict[str, object]:
 
     if arguments.command == "knowledge-freshness":
         return evaluate_freshness(
-            _read_knowledge(arguments.input), _parse_as_of(arguments.as_of), Path(arguments.input).parent
+            _read_knowledge(arguments.input), _parse_as_of(arguments.as_of), Path(arguments.input).parent,
+            allow_legacy_null_valid_from=_is_approved_baseline(arguments.input),
         ).to_dict()
 
     if arguments.command == "dataset":
@@ -328,6 +329,9 @@ def _ensure_freshness_output_is_safe(output: str | Path, input_path: str | Path)
     output_path = Path(output).resolve()
     input_resolved = Path(input_path).resolve()
     protected = {input_resolved}
+    protected.update(_referenced_paths(input_path))
+    repository_root = Path(__file__).resolve().parents[2]
+    protected.add((repository_root / "data" / "knowledge-baseline.json").resolve())
     for parent in (input_resolved.parent, *input_resolved.parents):
         protected.add((parent / "data" / "knowledge-baseline.json").resolve())
     configured_baseline = os.environ.get("SEKR_KNOWLEDGE_BASELINE")
@@ -337,6 +341,46 @@ def _ensure_freshness_output_is_safe(output: str | Path, input_path: str | Path)
         raise StructuredError("KNOWLEDGE_OUTPUT_ERROR", "Knowledge freshness output must not overwrite an input or approved baseline")
     if output_path.exists() and (_is_sqlite_file(output_path) or _is_knowledge_source(output_path)):
         raise StructuredError("KNOWLEDGE_OUTPUT_ERROR", "Knowledge freshness output must not overwrite an existing SQLite or source file")
+
+
+def _is_approved_baseline(path: str | Path) -> bool:
+    resolved = Path(path).resolve()
+    configured = os.environ.get("SEKR_KNOWLEDGE_BASELINE")
+    if configured and resolved == Path(configured).resolve():
+        return True
+    repository_root = Path(__file__).resolve().parents[2]
+    return resolved == (repository_root / "data" / "knowledge-baseline.json").resolve()
+
+
+def _referenced_paths(input_path: str | Path) -> set[Path]:
+    try:
+        data = json.loads(Path(input_path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return set()
+    references: set[Path] = set()
+
+    def visit(value: object, field: str | None = None) -> None:
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                visit(nested, str(key))
+        elif isinstance(value, list):
+            for nested in value:
+                visit(nested, field if field in {"evidence", "path", "source"} else None)
+        elif isinstance(value, str) and field in {"evidence", "path", "source"}:
+            path, separator, line_range = value.rpartition(":")
+            candidate = Path(path if separator and _is_line_range(line_range) else value)
+            try:
+                references.add(candidate.resolve() if candidate.is_absolute() else (Path(input_path).resolve().parent / candidate).resolve())
+            except OSError:
+                pass
+
+    visit(data)
+    return references
+
+
+def _is_line_range(value: str) -> bool:
+    start, separator, end = value.partition("-")
+    return bool(separator and start.isdecimal() and end.isdecimal())
 
 
 def _is_sqlite_file(path: Path) -> bool:

@@ -397,6 +397,7 @@ class KnowledgeRepository:
 
     def __init__(self, path: str | Path) -> None:
         self.path = path
+        init_db(path)
 
     def search_candidates(self, tokens: Iterable[str]) -> list[SearchCandidate]:
         query_tokens = set(normalize_tokens(tokens))

@@ -35,10 +35,11 @@ class FreshnessReport:
 
 
 def evaluate_freshness(
-    snapshot: Mapping[str, object], as_of: datetime, root: Path | str
+    snapshot: Mapping[str, object], as_of: datetime, root: Path | str,
+    *, allow_legacy_null_valid_from: bool = False,
 ) -> FreshnessReport:
     """Evaluate snapshot provenance without executing or modifying evidence files."""
-    _validate_snapshot_provenance(snapshot)
+    _validate_snapshot_provenance(snapshot, allow_legacy_null_valid_from=allow_legacy_null_valid_from)
     root_path = Path(root).resolve()
     records = [
         _evaluate_record(kind, key, properties, as_of, root_path)
@@ -50,7 +51,7 @@ def evaluate_freshness(
     )
 
 
-def _validate_snapshot_provenance(snapshot: Mapping[str, object]) -> None:
+def _validate_snapshot_provenance(snapshot: Mapping[str, object], *, allow_legacy_null_valid_from: bool = False) -> None:
     if not isinstance(snapshot, Mapping):
         raise StructuredError("INVALID_KNOWLEDGE", "Knowledge snapshot must be an object")
     for collection in ("nodes", "relationships"):
@@ -60,11 +61,11 @@ def _validate_snapshot_provenance(snapshot: Mapping[str, object]) -> None:
         for index, record in enumerate(records):
             if not isinstance(record, Mapping):
                 raise StructuredError("INVALID_KNOWLEDGE", "Knowledge snapshot records must be objects")
-            required = ("kind", "key", "properties") if collection == "nodes" else ("key", "properties")
+            required = (("kind", "key", "properties") if collection == "nodes" else ("key", "source_kind", "source_key", "target_kind", "target_key", "properties"))
             missing = [field for field in required if field not in record]
             if missing:
                 raise StructuredError("INVALID_KNOWLEDGE", "Knowledge snapshot record is missing required fields", {"collection": collection, "index": index, "missing": missing})
-            identity_fields = required[:-1] + (() if collection == "nodes" else ("source_kind", "source_key", "target_kind", "target_key"))
+            identity_fields = required[:-1]
             for field in identity_fields:
                 if field not in record:
                     continue
@@ -76,6 +77,7 @@ def _validate_snapshot_provenance(snapshot: Mapping[str, object]) -> None:
             validate_provenance(
                 properties,
                 f"snapshot {'node' if collection == 'nodes' else 'relationship'} {index}",
+                allow_legacy_null_valid_from=allow_legacy_null_valid_from,
                 allow_legacy_null_evidence=collection == "relationships" and properties.get("relation_type") in {
                     "HAS_ARTIFACT", "HAS_FACT", "HAS_PROFILE", "EXPECTS_ARTIFACT"
                 },
@@ -136,7 +138,7 @@ def _record_state(
     if any(digest != content_hash for digest in hashes):
         return "changed", ["CONTENT_HASH_MISMATCH"]
 
-    if properties.get("confidence") == "STALE":
+    if properties.get("confidence") == "STALE" or properties.get("freshness") == "stale":
         return "stale", ["EXPLICIT_STALE"]
     if valid_until is not None and valid_until < _utc(as_of):
         return "stale", ["VALIDITY_EXPIRED"]

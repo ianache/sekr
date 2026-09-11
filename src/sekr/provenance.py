@@ -20,7 +20,8 @@ _UTC_TIMESTAMP = re.compile(
 
 
 def validate_provenance(
-    properties: Mapping[str, object], record: str, *, allow_legacy_null_evidence: bool = False
+    properties: Mapping[str, object], record: str, *, allow_legacy_null_evidence: bool = False,
+    allow_legacy_null_valid_from: bool = False,
 ) -> None:
     """Validate provenance while preserving omission as the compatibility signal."""
     for field in PROVENANCE_FIELDS:
@@ -28,6 +29,8 @@ def validate_provenance(
             continue
         value = properties[field]
         if value is None and field == "evidence" and allow_legacy_null_evidence:
+            continue
+        if value is None and field == "valid_from" and allow_legacy_null_valid_from:
             continue
         if field == "evidence":
             valid_type = isinstance(value, (list, tuple)) and all(

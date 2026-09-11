@@ -707,3 +707,45 @@ def test_knowledge_freshness_reports_invalid_snapshot_structure(tmp_path, runner
 
     assert result.returncode == 1
     assert json.loads(result.stdout)["error"]["code"] == "INVALID_KNOWLEDGE"
+
+
+def test_knowledge_check_accepts_committed_legacy_baseline(runner):
+    result = runner(
+        "knowledge-check", "--input", "data/coder_activation.json",
+        "--baseline", "data/knowledge-baseline.json",
+    )
+
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert "error" not in payload
+    assert "policy" in payload
+
+
+def test_knowledge_freshness_reports_committed_legacy_baseline(runner):
+    result = runner(
+        "knowledge-freshness", "--input", "data/knowledge-baseline.json",
+        "--as-of", "2026-09-11T00:00:00Z",
+    )
+
+    assert result.returncode in {0, 1}
+    assert "error" not in json.loads(result.stdout)
+
+
+def test_knowledge_freshness_rejects_output_colliding_with_referenced_evidence(tmp_path, runner):
+    evidence = tmp_path / "evidence.md"
+    evidence.write_text("evidence", encoding="utf-8")
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text(json.dumps({"nodes": [{"kind": "Fact", "key": "f", "properties": {
+        "evidence": ["evidence.md"], "content_hash": "sha256:" + "0" * 64,
+    }}], "relationships": []}), encoding="utf-8")
+    original = evidence.read_bytes()
+
+    result = runner(
+        "knowledge-freshness", "--input", str(snapshot),
+        "--as-of", "2026-09-11T00:00:00Z", "--output", str(evidence),
+        cwd=Path(__file__).parent.parent.parent,
+    )
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["error"]["code"] == "KNOWLEDGE_OUTPUT_ERROR"
+    assert evidence.read_bytes() == original

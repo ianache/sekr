@@ -38,6 +38,29 @@ def test_freshness_rejects_scalar_evidence_consistently(tmp_path):
     assert error.value.code == "INVALID_EVIDENCE"
 
 
+def test_freshness_rejects_missing_relationship_endpoints_without_type_error(tmp_path):
+    snapshot = {"nodes": [], "relationships": [{"key": "r", "properties": {}}]}
+
+    with pytest.raises(StructuredError) as error:
+        evaluate_freshness(snapshot, AS_OF, tmp_path)
+
+    assert error.value.code == "INVALID_KNOWLEDGE"
+
+
+@pytest.mark.parametrize("field", ["source_kind", "source_key", "target_kind", "target_key"])
+def test_freshness_rejects_non_string_relationship_endpoints(tmp_path, field):
+    relationship = {
+        "key": "r", "source_kind": "Artifact", "source_key": "a",
+        "target_kind": "Artifact", "target_key": "b", "properties": {},
+    }
+    relationship[field] = 42
+
+    with pytest.raises(StructuredError) as error:
+        evaluate_freshness({"nodes": [], "relationships": [relationship]}, AS_OF, tmp_path)
+
+    assert error.value.code == "INVALID_KNOWLEDGE"
+
+
 def test_evaluate_freshness_assigns_all_states_and_uses_precedence(tmp_path):
     """Changing the hash comparison must fail this state and precedence contract."""
     (tmp_path / "current.md").write_bytes(b"current evidence")
@@ -166,6 +189,18 @@ def test_evaluate_freshness_marks_explicit_stale_confidence_stale_when_hash_matc
         ],
         "relationships": [],
     }
+
+    report = evaluate_freshness(snapshot, AS_OF, tmp_path)
+
+    assert report.records[0]["state"] == "stale"
+
+
+def test_evaluate_freshness_honors_stale_freshness_when_hash_matches(tmp_path):
+    (tmp_path / "source.md").write_bytes(b"matching evidence")
+    snapshot = {"nodes": [{"kind": "Fact", "key": "stale", "properties": {
+        "freshness": "stale", "evidence": ["source.md"],
+        "content_hash": _hash(b"matching evidence"),
+    }}], "relationships": []}
 
     report = evaluate_freshness(snapshot, AS_OF, tmp_path)
 

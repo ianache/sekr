@@ -61,7 +61,7 @@ def build_knowledge_snapshot(path: str) -> dict[str, object]:
 def check_knowledge(current: Snapshot, baseline: Snapshot) -> KnowledgeCheckReport:
     """Check integrity and compare a current snapshot against its baseline."""
     current_nodes, current_relationships = _snapshot_records(current, "current")
-    baseline_nodes, baseline_relationships = _snapshot_records(baseline, "baseline")
+    baseline_nodes, baseline_relationships = _snapshot_records(baseline, "baseline", allow_legacy_null_valid_from=True)
     issues = _integrity_issues(current_nodes, current_relationships, "current")
     issues.extend(_integrity_issues(baseline_nodes, baseline_relationships, "baseline"))
     diff = {
@@ -126,7 +126,7 @@ def _unallowed_diff(
 
 
 def _snapshot_records(
-    snapshot: Snapshot, label: str
+    snapshot: Snapshot, label: str, *, allow_legacy_null_valid_from: bool = False
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     nodes = snapshot.get("nodes", [])
     relationships = snapshot.get("relationships", [])
@@ -146,7 +146,7 @@ def _snapshot_records(
             raise StructuredError("INVALID_KNOWLEDGE", f"{label.capitalize()} node key must be a non-empty string")
         if not isinstance(node["properties"], dict):
             raise StructuredError("INVALID_KNOWLEDGE", f"{label.capitalize()} node properties must be an object")
-        validate_provenance(node["properties"], f"{label} node {index}")
+        validate_provenance(node["properties"], f"{label} node {index}", allow_legacy_null_valid_from=allow_legacy_null_valid_from)
     for index, relationship in enumerate(relationships):
         _require_fields(
             relationship,
@@ -161,6 +161,7 @@ def _snapshot_records(
         validate_provenance(
             relationship["properties"],
             f"{label} relationship {index}",
+            allow_legacy_null_valid_from=allow_legacy_null_valid_from,
             allow_legacy_null_evidence=relationship["properties"].get("relation_type")
             in {"HAS_ARTIFACT", "HAS_FACT", "HAS_PROFILE", "EXPECTS_ARTIFACT"},
         )
