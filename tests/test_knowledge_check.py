@@ -47,6 +47,46 @@ def test_knowledge_check_accepts_identical_valid_snapshot():
     }
 
 
+def test_knowledge_check_accepts_valid_provenance_fields():
+    snapshot = _snapshot([
+        _node(
+            "Fact",
+            "fact-a",
+            source="ADR 004",
+            evidence=["docs/adr.md:1-2"],
+            source_version="0.1",
+            content_hash="sha256:" + "a" * 64,
+            observed_at="2026-09-11T00:00:00Z",
+            valid_from="2026-09-01T00:00:00+00:00",
+            valid_until="2026-09-30T00:00:00Z",
+        )
+    ])
+
+    assert check_knowledge(snapshot, snapshot).valid is True
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("source", 42),
+        ("evidence", ["docs/ok.md", 42]),
+        ("source_version", 42),
+        ("content_hash", "sha256:" + "A" * 64),
+        ("observed_at", "2026-09-11T00:00:00"),
+        ("valid_from", "not-a-date"),
+        ("valid_until", 42),
+    ],
+)
+def test_knowledge_check_rejects_malformed_provenance(field, value):
+    record = _node("Fact", "fact-a", **{field: value})
+
+    with pytest.raises(StructuredError) as error:
+        check_knowledge(_snapshot([record]), _snapshot())
+
+    assert error.value.code == "INVALID_PROVENANCE"
+    assert error.value.details == {"field": field, "record": "current node 0"}
+
+
 def test_knowledge_check_reports_deterministic_snapshot_diff():
     baseline = _snapshot([_node("Artifact", "a", title="old")])
     current = _snapshot([_node("Artifact", "a", title="new"), _node("Fact", "f")])

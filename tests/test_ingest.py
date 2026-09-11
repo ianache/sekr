@@ -6,6 +6,7 @@ import pytest
 
 from sekr.errors import StructuredError
 from sekr.ingest import build_graph_projection
+from sekr.knowledge_check import check_knowledge, projection_to_snapshot
 
 
 DATASET = Path("data/coder_activation.json")
@@ -180,6 +181,23 @@ def test_projection_materializes_artifact_and_fact_provenance_defaults(tmp_path)
     assert artifact.properties["confidence"] == "UNKNOWN"
     assert fact.properties["evidence"] == []
     assert fact.properties["confidence"] == "UNKNOWN"
+
+
+def test_knowledge_check_accepts_projection_without_optional_provenance(tmp_path):
+    data = json.loads(DATASET.read_text(encoding="utf-8"))
+    optional_fields = (
+        "source", "evidence", "source_version", "content_hash",
+        "observed_at", "valid_from", "valid_until",
+    )
+    source = tmp_path / "legacy-without-provenance.json"
+    source.write_text(json.dumps(data), encoding="utf-8")
+    snapshot = projection_to_snapshot(build_graph_projection(source))
+    for record in (*snapshot["nodes"], *snapshot["relationships"]):
+        properties = record["properties"]
+        for field in optional_fields:
+            properties.pop(field, None)
+
+    assert check_knowledge(snapshot, snapshot).valid is True
 
 
 def test_invalid_relation_target_fails_before_projection(tmp_path):
