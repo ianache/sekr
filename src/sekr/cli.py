@@ -12,6 +12,7 @@ from sekr.delta import build_delta
 from sekr.errors import StructuredError
 from sekr.git_delta import GitDeltaSource
 from sekr.ingest import build_graph_projection
+from sekr.knowledge_check import check_knowledge, projection_to_snapshot
 from sekr.neo4j import write_projection
 
 
@@ -80,6 +81,11 @@ def _build_parser() -> _Parser:
     delta.add_argument("--head", required=True, metavar="REF")
     delta.add_argument("--output", metavar="PATH")
 
+    knowledge_check = commands.add_parser("knowledge-check")
+    knowledge_check.add_argument("--input", required=True, metavar="PATH")
+    knowledge_check.add_argument("--baseline", required=True, metavar="PATH")
+    knowledge_check.add_argument("--output", metavar="PATH")
+
     return parser
 
 
@@ -135,6 +141,11 @@ def _dispatch(arguments: argparse.Namespace) -> dict[str, object]:
         return build_delta(
             GitDeltaSource(Path.cwd()), arguments.base, arguments.head
         ).to_dict()
+
+    if arguments.command == "knowledge-check":
+        current = _read_knowledge(arguments.input)
+        baseline = _read_knowledge(arguments.baseline)
+        return check_knowledge(current, baseline).to_dict()
 
     if arguments.command == "dataset":
         if arguments.dataset_command == "load":
@@ -215,6 +226,30 @@ def _write_delta_output(path: str, payload: dict[str, object]) -> None:
     print(f"Wrote knowledge delta to {path}", file=os.sys.stderr)
 
 
+def _read_knowledge(path: str | Path) -> dict[str, object]:
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise StructuredError(
+            "INVALID_KNOWLEDGE", "Knowledge JSON could not be read", {"error": str(error)}
+        ) from error
+    if isinstance(data, dict) and "nodes" in data and "relationships" in data:
+        return data
+    if isinstance(data, dict):
+        return projection_to_snapshot(build_graph_projection(path))
+    raise StructuredError("INVALID_KNOWLEDGE", "Knowledge JSON must be an object")
+
+
+def _write_knowledge_output(path: str, payload: dict[str, object]) -> None:
+    try:
+        Path(path).write_bytes(_serialize(payload))
+    except OSError as error:
+        raise StructuredError(
+            "KNOWLEDGE_OUTPUT_ERROR", "Knowledge check report could not be written"
+        ) from error
+    print(f"Wrote knowledge check report to {path}", file=os.sys.stderr)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     try:
@@ -225,9 +260,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         payload = _dispatch(arguments)
         if arguments.command == "delta" and arguments.output is not None:
             _write_delta_output(arguments.output, payload)
+        elif arguments.command == "knowledge-check" and arguments.output is not None:
+            _write_knowledge_output(arguments.output, payload)
         else:
             _emit(payload)
-        return 0
+        return 0 if arguments.command != "knowledge-check" or payload["valid"] else 1
     except StructuredError as error:
         _emit({"error": error.to_dict()})
         return 1

@@ -105,6 +105,23 @@ Invalid refs and other delta failures produce structured JSON on stdout with
 a stable error code such as `DELTA_INVALID_REF`, rather than a traceback. The
 error response does not include full local repository paths.
 
+### Knowledge checks
+
+Validate a knowledge snapshot against a deterministic baseline:
+
+```powershell
+sekr knowledge-check --input knowledge.json --baseline knowledge-baseline.json
+sekr knowledge-check --input knowledge.json --baseline knowledge-baseline.json `
+  --output .sekr/knowledge-check.json
+```
+
+The input and baseline can be canonical snapshots with `nodes` and
+`relationships`, or validated SEKR dataset JSON files. The report identifies
+added, removed, and changed records and checks duplicate node/relationship
+keys plus orphan relationship endpoints. The command exits `0` only when the
+knowledge is structurally valid and identical to the baseline; drift or
+integrity violations return `1`.
+
 The command reads Git objects with argument-array subprocess calls and never
 executes code from either ref. It reports file changes for all paths, but
 symbol extraction and import/call impact analysis apply only to parseable

@@ -423,3 +423,34 @@ def test_delta_command_preserves_context_compile(seeded_db, runner):
     assert result.returncode == 0
     assert result.stderr == ""
     assert json.loads(result.stdout)["task"] == "activate coder values"
+
+
+def test_knowledge_check_emits_valid_report_for_identical_snapshots(tmp_path, runner):
+    snapshot = {"nodes": [], "relationships": []}
+    current = tmp_path / "current.json"
+    baseline = tmp_path / "baseline.json"
+    current.write_text(json.dumps(snapshot), encoding="utf-8")
+    baseline.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    result = runner("knowledge-check", "--input", str(current), "--baseline", str(baseline))
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert json.loads(result.stdout)["valid"] is True
+
+
+def test_knowledge_check_returns_one_and_writes_report_for_drift(tmp_path, runner):
+    current = tmp_path / "current.json"
+    baseline = tmp_path / "baseline.json"
+    output = tmp_path / "report.json"
+    current.write_text(json.dumps({"nodes": [{"kind": "Fact", "key": "new", "properties": {}}],
+                                   "relationships": []}), encoding="utf-8")
+    baseline.write_text(json.dumps({"nodes": [], "relationships": []}), encoding="utf-8")
+
+    result = runner("knowledge-check", "--input", str(current), "--baseline", str(baseline),
+                    "--output", str(output))
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == f"Wrote knowledge check report to {output}\n"
+    assert json.loads(output.read_text(encoding="utf-8"))["valid"] is False
