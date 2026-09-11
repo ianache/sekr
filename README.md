@@ -128,6 +128,13 @@ keys plus orphan relationship endpoints in both snapshots. The command exits
 `0` only when the knowledge is structurally valid and identical to the
 baseline; drift or integrity violations return `1`.
 
+For GitLab CI, the repository includes a blocking `knowledge-check` job in
+`.gitlab-ci.yml`. It publishes `.sekr/knowledge-check.json` as an artifact
+for one week. The default variables use `data/coder_activation.json` as a
+bootstrap baseline; configure `SEKR_KNOWLEDGE_INPUT` and
+`SEKR_KNOWLEDGE_BASELINE` as CI/CD variables to use an approved baseline for
+each project or environment.
+
 Evaluation output reports precision at K, critical recall, context size, false-positive rate and IDs, plus reproducibility. It never emits the oracle itself.
 
 The candidate universe is **all artifacts in the validated dataset**, including artifacts retrieval does not return. Oracle expected IDs define the positives; all remaining dataset IDs are negatives. `falsePositiveRate = FP / (FP + TN)`, with 0.0 defined when there are no negative candidates. `candidateCount` reports the universe size; `trueNegativeCount` reports negatives not selected. Oracle IDs must belong to the dataset, and critical IDs must be expected IDs. Precision is selected positives / selected items; critical recall is selected critical IDs / all critical IDs; either is 0.0 for an empty denominator.
