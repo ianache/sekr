@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -499,3 +500,140 @@ def test_knowledge_check_report_only_policy_returns_success_for_drift(tmp_path, 
     payload = json.loads(result.stdout)
     assert payload["valid"] is False
     assert payload["policy"] == {"mode": "report-only", "allowed": True, "severity": "warning"}
+
+
+def _content_hash(content: bytes) -> str:
+    return f"sha256:{hashlib.sha256(content).hexdigest()}"
+
+
+def test_knowledge_freshness_accepts_dataset_input_and_uses_fixed_as_of(runner):
+    """Removing structured dataset loading or UTC parsing must fail this CLI contract."""
+    result = runner(
+        "knowledge-freshness",
+        "--input",
+        "data/coder_activation.json",
+        "--as-of",
+        "2026-09-11T07:00:00-05:00",
+    )
+
+    assert result.returncode == 1
+    assert result.stderr == ""
+    payload = json.loads(result.stdout)
+    assert payload["as_of"] == "2026-09-11T12:00:00Z"
+    assert payload["valid"] is False
+    assert payload["counts"]["unverified"] > 0
+
+
+def test_knowledge_freshness_writes_exact_stdout_bytes_for_current_snapshot(tmp_path, runner, binary_runner):
+    """Changing serialization, output routing, or valid exit handling must fail this command contract."""
+    evidence = tmp_path / "evidence.md"
+    evidence.write_bytes(b"current evidence")
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {
+                        "kind": "Fact",
+                        "key": "current",
+                        "properties": {
+                            "evidence": ["evidence.md"],
+                            "content_hash": _content_hash(b"current evidence"),
+                        },
+                    }
+                ],
+                "relationships": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "freshness.json"
+    arguments = (
+        "knowledge-freshness",
+        "--input",
+        str(snapshot),
+        "--as-of",
+        "2026-09-11T12:00:00Z",
+    )
+
+    stdout_result = binary_runner(*arguments)
+    output_result = runner(*arguments, "--output", str(output))
+
+    assert stdout_result.returncode == 0
+    assert output_result.returncode == 0
+    assert output_result.stdout == ""
+    assert output_result.stderr == f"Wrote knowledge freshness report to {output}\n"
+    assert output.read_bytes() == stdout_result.stdout
+    assert json.loads(stdout_result.stdout)["valid"] is True
+
+
+def test_knowledge_freshness_returns_one_for_non_current_records_without_evidence_paths(tmp_path, runner):
+    """Returning success for stale records or exposing resolved evidence paths must fail this contract."""
+    evidence = tmp_path / "evidence.md"
+    evidence.write_bytes(b"stale evidence")
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text(
+        json.dumps(
+            {
+                "nodes": [
+                    {
+                        "kind": "Fact",
+                        "key": "stale",
+                        "properties": {
+                            "evidence": ["evidence.md"],
+                            "content_hash": _content_hash(b"stale evidence"),
+                            "valid_until": "2026-09-10T00:00:00Z",
+                        },
+                    }
+                ],
+                "relationships": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner(
+        "knowledge-freshness",
+        "--input",
+        str(snapshot),
+        "--as-of",
+        "2026-09-11T12:00:00Z",
+    )
+
+    assert result.returncode == 1
+    assert result.stderr == ""
+    assert json.loads(result.stdout)["records"] == [
+        {"kind": "Fact", "key": "stale", "state": "stale", "reasons": ["VALIDITY_EXPIRED"]}
+    ]
+    assert str(tmp_path) not in result.stdout
+
+
+def test_knowledge_freshness_invalid_as_of_returns_structured_error(runner):
+    """Accepting a naive or malformed timestamp must fail this provenance-validation contract."""
+    result = runner(
+        "knowledge-freshness",
+        "--input",
+        "data/coder_activation.json",
+        "--as-of",
+        "2026-09-11T12:00:00",
+    )
+
+    assert result.returncode == 1
+    assert result.stderr == ""
+    assert json.loads(result.stdout)["error"]["code"] == "INVALID_PROVENANCE"
+
+
+def test_knowledge_freshness_unwritable_output_returns_structured_error(tmp_path, runner):
+    """Masking a failed report write as success must fail this output-error contract."""
+    result = runner(
+        "knowledge-freshness",
+        "--input",
+        "data/coder_activation.json",
+        "--as-of",
+        "2026-09-11T12:00:00Z",
+        "--output",
+        str(tmp_path / "missing" / "freshness.json"),
+    )
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["error"]["code"] == "KNOWLEDGE_OUTPUT_ERROR"

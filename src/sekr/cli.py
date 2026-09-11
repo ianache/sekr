@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
@@ -10,6 +11,7 @@ from sekr.compiler import ContextCompiler, evaluate_case
 from sekr.db import KnowledgeRepository, load_dataset, validate_dataset
 from sekr.delta import build_delta
 from sekr.errors import StructuredError
+from sekr.freshness import evaluate_freshness
 from sekr.git_delta import GitDeltaSource
 from sekr.ingest import build_graph_projection
 from sekr.knowledge_check import (
@@ -96,6 +98,11 @@ def _build_parser() -> _Parser:
     knowledge_snapshot.add_argument("--input", required=True, metavar="PATH")
     knowledge_snapshot.add_argument("--output", required=True, metavar="PATH")
 
+    knowledge_freshness = commands.add_parser("knowledge-freshness")
+    knowledge_freshness.add_argument("--input", required=True, metavar="PATH")
+    knowledge_freshness.add_argument("--as-of", metavar="ISO-8601")
+    knowledge_freshness.add_argument("--output", metavar="PATH")
+
     return parser
 
 
@@ -164,6 +171,11 @@ def _dispatch(arguments: argparse.Namespace) -> dict[str, object]:
 
     if arguments.command == "knowledge-snapshot":
         return build_knowledge_snapshot(arguments.input)
+
+    if arguments.command == "knowledge-freshness":
+        return evaluate_freshness(
+            _read_knowledge(arguments.input), _parse_as_of(arguments.as_of), Path(arguments.input).parent
+        ).to_dict()
 
     if arguments.command == "dataset":
         if arguments.dataset_command == "load":
@@ -270,6 +282,18 @@ def _read_policy(path: str | Path) -> dict[str, object]:
     return data
 
 
+def _parse_as_of(value: str | None) -> datetime:
+    if value is None:
+        return datetime.now(timezone.utc)
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise StructuredError("INVALID_PROVENANCE", "As-of timestamp must be ISO-8601 UTC") from error
+    if parsed.tzinfo is None:
+        raise StructuredError("INVALID_PROVENANCE", "As-of timestamp must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
 def _write_knowledge_output(path: str, payload: dict[str, object]) -> None:
     try:
         Path(path).write_bytes(_serialize(payload))
@@ -290,6 +314,16 @@ def _write_snapshot_output(path: str, payload: dict[str, object]) -> None:
     print(f"Wrote knowledge snapshot to {path}", file=os.sys.stderr)
 
 
+def _write_freshness_output(path: str, payload: dict[str, object]) -> None:
+    try:
+        Path(path).write_bytes(_serialize(payload))
+    except OSError as error:
+        raise StructuredError(
+            "KNOWLEDGE_OUTPUT_ERROR", "Knowledge freshness report could not be written"
+        ) from error
+    print(f"Wrote knowledge freshness report to {path}", file=os.sys.stderr)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     try:
@@ -304,10 +338,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             _write_knowledge_output(arguments.output, payload)
         elif arguments.command == "knowledge-snapshot":
             _write_snapshot_output(arguments.output, payload)
+        elif arguments.command == "knowledge-freshness" and arguments.output is not None:
+            _write_freshness_output(arguments.output, payload)
         else:
             _emit(payload)
         if arguments.command == "knowledge-check":
             return 0 if payload["policy"]["allowed"] else 1
+        if arguments.command == "knowledge-freshness":
+            return 0 if payload["valid"] else 1
         return 0
     except StructuredError as error:
         _emit({"error": error.to_dict()})
