@@ -74,14 +74,28 @@ def _validate_snapshot_provenance(snapshot: Mapping[str, object], *, allow_legac
             properties = record.get("properties")
             if not isinstance(properties, Mapping):
                 raise StructuredError("INVALID_KNOWLEDGE", "Knowledge snapshot record properties must be an object")
+            if collection == "relationships":
+                _validate_relation_type(properties, f"snapshot relationship {index}")
             validate_provenance(
                 properties,
                 f"snapshot {'node' if collection == 'nodes' else 'relationship'} {index}",
                 allow_legacy_null_valid_from=allow_legacy_null_valid_from,
-                allow_legacy_null_evidence=collection == "relationships" and properties.get("relation_type") in {
-                    "HAS_ARTIFACT", "HAS_FACT", "HAS_PROFILE", "EXPECTS_ARTIFACT"
-                },
+                allow_legacy_null_evidence=collection == "relationships" and _is_structural_relation(properties.get("relation_type")),
             )
+
+
+def _validate_relation_type(properties: Mapping[str, object], record: str) -> None:
+    if "relation_type" in properties and (
+        not isinstance(properties["relation_type"], str) or not properties["relation_type"]
+    ):
+        raise StructuredError(
+            "INVALID_KNOWLEDGE", "Relationship relation_type must be a non-empty string",
+            {"field": "relation_type", "record": record},
+        )
+
+
+def _is_structural_relation(relation_type: object) -> bool:
+    return relation_type in {"HAS_ARTIFACT", "HAS_FACT", "HAS_PROFILE", "EXPECTS_ARTIFACT"} if isinstance(relation_type, str) else False
 
 
 def _snapshot_records(snapshot: Mapping[str, object]) -> list[tuple[str, str, Mapping[str, object]]]:

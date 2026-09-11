@@ -245,9 +245,14 @@ def test_evaluate_freshness_is_deterministic_and_sorts_node_and_relationship_rec
             },
         ],
         "relationships": [
-            {"key": "relation.z", "properties": {}},
+            {
+                "key": "relation.z", "source_kind": "Fact", "source_key": "z",
+                "target_kind": "Fact", "target_key": "a", "properties": {},
+            },
             {
                 "key": "relation.a",
+                "source_kind": "Fact", "source_key": "a",
+                "target_kind": "Fact", "target_key": "z",
                 "properties": {
                     "evidence": ["evidence.md"],
                     "content_hash": _hash(b"evidence"),

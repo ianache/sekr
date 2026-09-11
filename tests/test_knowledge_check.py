@@ -141,8 +141,14 @@ def test_knowledge_check_rejects_malformed_provenance(field, value):
 
 
 def test_knowledge_check_reports_deterministic_snapshot_diff():
-    baseline = _snapshot([_node("Artifact", "a", title="old")])
-    current = _snapshot([_node("Artifact", "a", title="new"), _node("Fact", "f")])
+    baseline = _snapshot(
+        [_node("Artifact", "a", title="old"), _node("Artifact", "b")],
+        [_relationship("r", "a", "b", relation_type="USES")],
+    )
+    current = _snapshot(
+        [_node("Artifact", "a", title="new"), _node("Artifact", "b"), _node("Fact", "f")],
+        [_relationship("r", "a", "b", relation_type="USES")],
+    )
 
     report = check_knowledge(current, baseline)
 
@@ -157,6 +163,38 @@ def test_knowledge_check_reports_deterministic_snapshot_diff():
         },
         "relationships": {"added": [], "removed": [], "changed": []},
     }
+
+
+def test_knowledge_check_treats_only_empty_provenance_representations_as_equal():
+    current = _snapshot([_node("Fact", "fact-a")])
+    baseline = _snapshot([_node("Fact", "fact-a", source="", evidence=[], valid_from=None)])
+
+    report = check_knowledge(current, baseline)
+
+    assert report.valid is True
+
+
+def test_knowledge_check_does_not_hide_nonempty_provenance_drift():
+    current = _snapshot([_node("Fact", "fact-a")])
+    baseline = _snapshot([_node("Fact", "fact-a", source="ADR 004")])
+
+    report = check_knowledge(current, baseline)
+
+    assert report.valid is False
+    assert report.diff["nodes"]["changed"]
+
+
+@pytest.mark.parametrize("relation_type", [[], {}])
+def test_knowledge_check_rejects_non_scalar_relation_type_without_traceback(relation_type):
+    snapshot = _snapshot(
+        [_node("Artifact", "a"), _node("Artifact", "b")],
+        [_relationship("r", "a", "b", relation_type=relation_type)],
+    )
+
+    with pytest.raises(StructuredError) as error:
+        check_knowledge(snapshot, snapshot)
+
+    assert error.value.code == "INVALID_KNOWLEDGE"
 
 
 def test_knowledge_check_reports_duplicate_and_orphan_integrity_issues():

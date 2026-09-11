@@ -158,12 +158,12 @@ def _snapshot_records(
                 raise StructuredError("INVALID_KNOWLEDGE", f"{label.capitalize()} relationship {field} must be a non-empty string")
         if not isinstance(relationship["properties"], dict):
             raise StructuredError("INVALID_KNOWLEDGE", f"{label.capitalize()} relationship properties must be an object")
+        _validate_relation_type(relationship["properties"], f"{label} relationship {index}")
         validate_provenance(
             relationship["properties"],
             f"{label} relationship {index}",
             allow_legacy_null_valid_from=allow_legacy_null_valid_from,
-            allow_legacy_null_evidence=relationship["properties"].get("relation_type")
-            in {"HAS_ARTIFACT", "HAS_FACT", "HAS_PROFILE", "EXPECTS_ARTIFACT"},
+            allow_legacy_null_evidence=_is_structural_relation(relationship["properties"].get("relation_type")),
         )
     return list(nodes), list(relationships)
 
@@ -174,6 +174,20 @@ def _require_fields(record: Mapping[str, object], fields: tuple[str, ...], label
         raise StructuredError(
             "INVALID_KNOWLEDGE", f"{label.capitalize()} is missing required fields", {"missing": missing}
         )
+
+
+def _validate_relation_type(properties: Mapping[str, object], record: str) -> None:
+    if "relation_type" in properties and (
+        not isinstance(properties["relation_type"], str) or not properties["relation_type"]
+    ):
+        raise StructuredError(
+            "INVALID_KNOWLEDGE", "Relationship relation_type must be a non-empty string",
+            {"field": "relation_type", "record": record},
+        )
+
+
+def _is_structural_relation(relation_type: object) -> bool:
+    return relation_type in {"HAS_ARTIFACT", "HAS_FACT", "HAS_PROFILE", "EXPECTS_ARTIFACT"} if isinstance(relation_type, str) else False
 
 
 def _integrity_issues(
@@ -246,7 +260,7 @@ def _diff_records(
     changed = [
         {"before": baseline_by_id[key], "after": current_by_id[key]}
         for key in current_by_id.keys() & baseline_by_id.keys()
-        if _canonical(current_by_id[key]) != _canonical(baseline_by_id[key])
+        if _canonical(_normalize_record(current_by_id[key])) != _canonical(_normalize_record(baseline_by_id[key]))
     ]
     return {
         "added": _sorted_records(added),
@@ -265,3 +279,22 @@ def _sorted_records(records: list[dict[str, object]]) -> list[dict[str, object]]
 
 def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _normalize_record(record: Mapping[str, object]) -> dict[str, object]:
+    normalized = dict(record)
+    properties = record.get("properties")
+    if isinstance(properties, dict):
+        normalized["properties"] = {
+            key: value
+            for key, value in properties.items()
+            if key not in {
+                "source", "evidence", "source_version", "content_hash",
+                "observed_at", "valid_from", "valid_until",
+            } or not _is_empty_provenance(value)
+        }
+    return normalized
+
+
+def _is_empty_provenance(value: object) -> bool:
+    return value is None or value == "" or value == [] or value == ()

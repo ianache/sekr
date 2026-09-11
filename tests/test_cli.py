@@ -715,7 +715,7 @@ def test_knowledge_check_accepts_committed_legacy_baseline(runner):
         "--baseline", "data/knowledge-baseline.json",
     )
 
-    assert result.returncode == 1
+    assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert "error" not in payload
     assert "policy" in payload
@@ -749,3 +749,41 @@ def test_knowledge_freshness_rejects_output_colliding_with_referenced_evidence(t
     assert result.returncode == 1
     assert json.loads(result.stdout)["error"]["code"] == "KNOWLEDGE_OUTPUT_ERROR"
     assert evidence.read_bytes() == original
+
+
+def test_knowledge_freshness_rejects_hardlink_to_referenced_evidence(tmp_path, runner):
+    evidence = tmp_path / "evidence.md"
+    evidence.write_text("evidence", encoding="utf-8")
+    output = tmp_path / "freshness.json"
+    os.link(evidence, output)
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text(json.dumps({"nodes": [{"kind": "Fact", "key": "f", "properties": {
+        "evidence": ["evidence.md"], "content_hash": "sha256:" + "0" * 64,
+    }}], "relationships": []}), encoding="utf-8")
+    original = evidence.read_bytes()
+
+    result = runner(
+        "knowledge-freshness", "--input", str(snapshot),
+        "--as-of", "2026-09-11T00:00:00Z", "--output", str(output),
+    )
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["error"]["code"] == "KNOWLEDGE_OUTPUT_ERROR"
+    assert evidence.read_bytes() == original
+
+
+def test_knowledge_freshness_rejects_hardlink_to_input(tmp_path, runner):
+    snapshot = tmp_path / "snapshot.json"
+    snapshot.write_text(json.dumps({"nodes": [], "relationships": []}), encoding="utf-8")
+    output = tmp_path / "freshness.json"
+    os.link(snapshot, output)
+    original = snapshot.read_bytes()
+
+    result = runner(
+        "knowledge-freshness", "--input", str(snapshot),
+        "--as-of", "2026-09-11T00:00:00Z", "--output", str(output),
+    )
+
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["error"]["code"] == "KNOWLEDGE_OUTPUT_ERROR"
+    assert snapshot.read_bytes() == original

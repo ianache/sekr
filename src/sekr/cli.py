@@ -337,10 +337,19 @@ def _ensure_freshness_output_is_safe(output: str | Path, input_path: str | Path)
     configured_baseline = os.environ.get("SEKR_KNOWLEDGE_BASELINE")
     if configured_baseline:
         protected.add(Path(configured_baseline).resolve())
-    if output_path in protected:
+    if output_path in protected or any(_same_file(output_path, path) for path in protected):
         raise StructuredError("KNOWLEDGE_OUTPUT_ERROR", "Knowledge freshness output must not overwrite an input or approved baseline")
     if output_path.exists() and (_is_sqlite_file(output_path) or _is_knowledge_source(output_path)):
         raise StructuredError("KNOWLEDGE_OUTPUT_ERROR", "Knowledge freshness output must not overwrite an existing SQLite or source file")
+
+
+def _same_file(first: Path, second: Path) -> bool:
+    if not first.exists() or not second.exists():
+        return False
+    try:
+        return os.path.samefile(first, second)
+    except (OSError, ValueError):
+        return False
 
 
 def _is_approved_baseline(path: str | Path) -> bool:
