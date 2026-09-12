@@ -131,7 +131,7 @@ def test_compile_context_returns_a_sanitized_structured_database_error(seeded_db
     )
 
     assert result.isError is True
-    assert result.structuredContent["error"]["code"] == "DATASET_INVALID"
+    assert result.structuredContent["error"]["code"] == "DATABASE_ERROR"
     assert str(database_directory) not in json.dumps(result.structuredContent)
     assert str(database_directory) not in result.content[0].text
 
